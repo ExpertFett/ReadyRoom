@@ -54,7 +54,7 @@ Each wing has a token. POST sortie batches to `/ingest/<token>`:
 
 ```json
 { "type": "sorties", "source": "dcs", "sorties": [
-  { "pilot": "Maverick", "airframe": "FA-18C", "seconds": 3600, "started_at": 1700000000000 }
+  { "pilot": "Maverick", "airframe": "F-14B", "seconds": 3600, "started_at": 1700000000000 }
 ] }
 ```
 

@@ -36,8 +36,10 @@ a:hover { text-decoration: underline; }
   top: 0;
   z-index: 10;
 }
-.brand { font-weight: 700; letter-spacing: 0.5px; font-size: 16px; }
+.brand { font-weight: 700; letter-spacing: 0.5px; font-size: 16px; display: flex; align-items: center; }
 .brand .tag { color: var(--accent); }
+/* Logo is neon-on-black (no alpha) — `screen` drops the black so it sits on the dark bar. */
+.brand-logo { height: 30px; width: auto; display: block; mix-blend-mode: screen; }
 .topbar .spacer { flex: 1; }
 .topbar .who { color: var(--muted); font-size: 13px; }
 
@@ -120,3 +122,69 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 4px; }
 .error { color: var(--danger); font-size: 13px; }
 .crumbs { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 .crumbs a { color: var(--muted); }
+
+.nav { display: flex; gap: 4px; margin-left: 8px; }
+.nav a { padding: 6px 12px; border-radius: 7px; color: var(--muted); font-weight: 600; font-size: 13px; }
+.nav a:hover { color: var(--text); text-decoration: none; }
+.nav a.active { color: var(--text); background: var(--panel-2); }
+
+.list-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.list-row:last-child { border-bottom: none; }
+.list-row:hover { text-decoration: none; }
+.list-row:hover .callsign { color: var(--accent); }
+
+.seat-pill {
+  display: inline-block; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; color: var(--muted);
+  white-space: nowrap;
+}
+
+/* --- landing / hero --- */
+.landing { min-height: 100vh; }
+.landing-hero { max-width: 860px; margin: 0 auto; padding: 64px 24px 36px; text-align: center; }
+/* Logo ships neon-on-black (no alpha); `screen` drops the black so only the glow composites onto the dark page. */
+.landing-logo { width: 460px; max-width: 88%; height: auto; display: block; margin: 0 auto 12px; mix-blend-mode: screen; }
+.landing-beta {
+  display: inline-block; background: var(--accent); color: #06101f;
+  font-weight: 800; font-size: 12px; letter-spacing: 3px; padding: 4px 14px; border-radius: 4px;
+}
+.landing-tagline { font-size: 20px; font-weight: 600; margin: 18px 0 6px; }
+.landing-sub { color: var(--muted); max-width: 600px; margin: 0 auto 26px; line-height: 1.5; }
+.landing-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn-discord {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: #5865F2; color: #fff; border: 1px solid #5865F2;
+  font-weight: 700; font-size: 16px; padding: 13px 26px; border-radius: 8px; text-decoration: none;
+}
+.btn-discord:hover { text-decoration: none; filter: brightness(1.08); }
+.landing-fine { color: var(--muted); font-size: 13px; margin-top: 14px; }
+.landing-grid {
+  max-width: 1040px; margin: 0 auto; padding: 8px 24px;
+  display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+}
+.landing-feature {
+  background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 16px 18px; text-align: left;
+}
+.ft-title { font-weight: 700; margin-bottom: 6px; }
+.ft-body { color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.landing-how { max-width: 1040px; margin: 0 auto; padding: 36px 24px 8px; }
+.landing-how h2 { text-align: center; letter-spacing: 1px; font-size: 18px; }
+.landing-steps { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+.landing-step {
+  flex: 1 1 240px; max-width: 300px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; text-align: center;
+}
+.step-n {
+  width: 38px; height: 38px; line-height: 38px; margin: 0 auto 10px; border-radius: 50%;
+  background: var(--accent); color: #06101f; font-weight: 800; font-size: 18px;
+}
+.landing-footer {
+  max-width: 1040px; margin: 40px auto 0; padding: 20px 24px 48px;
+  border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-size: 13px;
+}
+.landing-footer .tag { color: var(--accent); font-weight: 700; }
+.landing-ver {
+  margin-left: 10px; padding: 2px 8px; border: 1px solid var(--border);
+  border-radius: 3px; font-size: 11px; letter-spacing: .5px;
+}

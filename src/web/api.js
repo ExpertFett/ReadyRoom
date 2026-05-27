@@ -9,6 +9,15 @@ import {
   setMemberQual, getMemberQuals, removeMemberQual,
   getRecentSorties, getMemberSorties, getUnmatchedAliases,
 } from '../db/index.js';
+import {
+  createCampaign, getCampaigns, getCampaign, updateCampaign, deleteCampaign,
+  createMission, listMissions, getMissionFull, updateMission, deleteMission, cloneMission,
+  addFlight, getFlight, updateFlight, deleteFlight,
+  signUp, getSignup, removeSignup,
+  setMissionAccess,
+  addResource, deleteResource,
+  getDashboard,
+} from '../db/missions.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, getActor } from './auth.js';
 
@@ -310,6 +319,135 @@ export function apiRouter() {
     const wingId = Number(req.query.wing_id);
     if (!wingId) return res.status(400).json({ error: 'missing_wing_id' });
     res.json(getUnmatchedAliases(wingId));
+  });
+
+  // =====================================================================
+  // Missions / ops (Phase A) — the bot<->editor bridge object
+  // =====================================================================
+  const ms = (v) => { const t = v ? new Date(v).getTime() : NaN; return Number.isFinite(t) ? t : null; };
+
+  // ----- campaigns -----
+  router.get('/campaigns', (req, res) => {
+    const wingId = Number(req.query.wing_id);
+    if (!wingId) return res.status(400).json({ error: 'missing_wing_id' });
+    res.json(getCampaigns(wingId));
+  });
+  router.post('/campaigns', requireAdmin, (req, res) => {
+    const b = req.body || {};
+    const wingId = Number(b.wing_id);
+    if (!wingId || !getWing(wingId)) return res.status(400).json({ error: 'bad_wing' });
+    if (!str(b.name, 160)) return res.status(400).json({ error: 'missing_name' });
+    res.json(createCampaign(wingId, { name: str(b.name, 160), description: str(b.description, 4000), status: b.status, start_at: ms(b.start_at), end_at: ms(b.end_at) }));
+  });
+  router.put('/campaigns/:id', requireAdmin, (req, res) => {
+    const c = getCampaign(Number(req.params.id));
+    if (!c) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    res.json(updateCampaign(c.id, { name: str(b.name, 160) || c.name, description: str(b.description, 4000), status: b.status, start_at: ms(b.start_at), end_at: ms(b.end_at) }));
+  });
+  router.delete('/campaigns/:id', requireAdmin, (req, res) => res.json({ ok: deleteCampaign(Number(req.params.id)) > 0 }));
+
+  // ----- missions -----
+  router.get('/missions', (req, res) => {
+    const wingId = Number(req.query.wing_id);
+    if (!wingId) return res.status(400).json({ error: 'missing_wing_id' });
+    res.json(listMissions(wingId, {
+      status: req.query.status, type: req.query.type,
+      campaign_id: req.query.campaign_id, aircraft: req.query.aircraft, search: req.query.search,
+    }));
+  });
+  router.post('/missions', requireAdmin, (req, res) => {
+    const b = req.body || {};
+    const wingId = Number(b.wing_id);
+    if (!wingId || !getWing(wingId)) return res.status(400).json({ error: 'bad_wing' });
+    if (!str(b.name, 160)) return res.status(400).json({ error: 'missing_name' });
+    res.json(createMission(wingId, {
+      type: b.type, campaign_id: b.campaign_id, name: str(b.name, 160),
+      primary_aircraft: str(b.primary_aircraft, 120), status: b.status,
+      start_at: ms(b.start_at), duration_min: Number(b.duration_min) || null,
+      description: str(b.description, 8000), miz_ref: str(b.miz_ref, 500),
+    }, getActor(req).user?.id || null));
+  });
+  router.get('/missions/:id', (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    res.json(m);
+  });
+  router.put('/missions/:id', requireAdmin, (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    res.json(updateMission(m.id, {
+      type: b.type ?? m.type, campaign_id: b.campaign_id ?? m.campaign_id, name: str(b.name, 160) || m.name,
+      primary_aircraft: str(b.primary_aircraft, 120), status: b.status ?? m.status,
+      start_at: ms(b.start_at), duration_min: Number(b.duration_min) || null,
+      description: str(b.description, 8000), miz_ref: str(b.miz_ref, 500),
+    }));
+  });
+  router.delete('/missions/:id', requireAdmin, (req, res) => res.json({ ok: deleteMission(Number(req.params.id)) > 0 }));
+  router.post('/missions/:id/clone', requireAdmin, (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    res.json(cloneMission(m.id, { wingId: m.wing_id, type: b.type || 'standalone', name: str(b.name, 160) }, getActor(req).user?.id || null));
+  });
+
+  // ----- flights -----
+  router.post('/missions/:id/flights', requireAdmin, (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    res.json(addFlight(m.id, req.body || {}));
+  });
+  router.put('/flights/:id', requireAdmin, (req, res) => {
+    const f = getFlight(Number(req.params.id));
+    if (!f) return res.status(404).json({ error: 'not_found' });
+    res.json(updateFlight(f.id, req.body || {}));
+  });
+  router.delete('/flights/:id', requireAdmin, (req, res) => res.json({ ok: deleteFlight(Number(req.params.id)) > 0 }));
+
+  // ----- squadron access & resources -----
+  router.post('/missions/:id/access', requireAdmin, (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    res.json(setMissionAccess(m.id, req.body?.access || []));
+  });
+  router.post('/missions/:id/resources', requireAdmin, (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    res.json(addResource(m.id, { kind: b.kind, label: str(b.label, 200), url: str(b.url, 1000) }));
+  });
+  router.delete('/resources/:id', requireAdmin, (req, res) => res.json({ ok: deleteResource(Number(req.params.id)) > 0 }));
+
+  // ----- signups (self-service, or admin signing on behalf) -----
+  router.post('/flights/:id/signup', (req, res) => {
+    const flight = getFlight(Number(req.params.id));
+    if (!flight) return res.status(404).json({ error: 'not_found' });
+    const actor = getActor(req);
+    let memberId = Number(req.body?.member_id) || null;
+    if (memberId && !actor.isAdmin) return res.status(403).json({ error: 'forbidden' });
+    if (!memberId) memberId = actor.member?.id || null;
+    if (!memberId) return res.status(400).json({ error: 'no_member' });
+    try {
+      res.json(signUp(flight.id, memberId, req.body?.status));
+    } catch (err) {
+      const code = ['flight_full', 'already_signed'].includes(err.message) ? 409 : 400;
+      res.status(code).json({ error: err.message || 'signup_failed' });
+    }
+  });
+  router.delete('/signups/:id', (req, res) => {
+    const s = getSignup(Number(req.params.id));
+    if (!s) return res.status(404).json({ error: 'not_found' });
+    const actor = getActor(req);
+    if (!actor.isAdmin && s.member_id !== actor.member?.id) return res.status(403).json({ error: 'forbidden' });
+    res.json({ ok: removeSignup(s.id) > 0 });
+  });
+
+  // ----- dashboard -----
+  router.get('/dashboard', (req, res) => {
+    const wingId = Number(req.query.wing_id);
+    if (!wingId) return res.status(400).json({ error: 'missing_wing_id' });
+    res.json(getDashboard(wingId, getActor(req).member?.id || null));
   });
 
   return router;

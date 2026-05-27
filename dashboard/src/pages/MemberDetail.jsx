@@ -138,7 +138,7 @@ function Aliases({ m, canEdit, onChanged }) {
       </div>
       {canEdit && (
         <form className="row" onSubmit={add} style={{ marginTop: 10, alignItems: 'flex-end' }}>
-          <div style={{ flex: 1 }}><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder='e.g. "[VFA-103] Maverick"' /></div>
+          <div style={{ flex: 1 }}><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder='e.g. "Maverick" or "[VF-1] Maverick"' /></div>
           <button className="small">Claim name</button>
         </form>
       )}

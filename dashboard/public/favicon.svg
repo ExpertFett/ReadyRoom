@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="ReadyRoom">
+  <rect width="64" height="64" rx="14" fill="#0e1116"/>
+  <path d="M11 41 C 25 29, 45 27, 55 33 C 45 23, 25 25, 11 35 Z" fill="#4c8bf5"/>
+  <text x="32" y="47" text-anchor="middle" font-family="'Segoe UI', 'Arial Black', Arial, sans-serif"
+        font-weight="800" font-style="italic" font-size="30">
+    <tspan fill="#e6edf3">R</tspan><tspan fill="#4c8bf5">R</tspan>
+  </text>
+</svg>

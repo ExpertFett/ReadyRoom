@@ -43,7 +43,8 @@ authRouter.get('/callback', async (req, res) => {
 // Local-only login bypass so the app is usable before Discord OAuth is wired.
 authRouter.get('/dev-login', (req, res) => {
   if (!config.allowDevLogin) return res.status(404).send('Not found');
-  req.session.user = { id: 'dev-admin', username: 'Dev Admin', avatar: null, dev: true };
+  // Numeric snowflake-style ID so it round-trips like a real Discord ID (can be linked to a member).
+  req.session.user = { id: '100000000000000000', username: 'Dev Admin', avatar: null, dev: true };
   res.redirect('/');
 });
 
@@ -65,7 +66,8 @@ export function isRoot(req) {
 export function getActor(req) {
   const user = req.session?.user || null;
   const root = isRoot(req);
-  const member = user && !user.dev ? getMemberByDiscord(user.id) : null;
+  // Map any logged-in user (incl. the local dev user) to their roster member by Discord ID.
+  const member = user ? getMemberByDiscord(user.id) : null;
   const role = root ? 'admin' : member?.app_role || 'guest';
   return { user, root, member, role, isAdmin: root || role === 'admin' };
 }

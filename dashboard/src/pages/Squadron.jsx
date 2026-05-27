@@ -74,9 +74,9 @@ function AddMember({ sqn, onDone }) {
   return (
     <form className="card" onSubmit={submit} style={{ marginTop: 14 }}>
       <div className="form-grid">
-        <div className="field"><label>Callsign</label><input value={f.callsign} onChange={(e) => setF({ ...f, callsign: e.target.value })} /></div>
-        <div className="field"><label>Name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-        <div className="field"><label>Rank</label><input value={f.rank} onChange={(e) => setF({ ...f, rank: e.target.value })} /></div>
+        <div className="field"><label>Callsign</label><input value={f.callsign} onChange={(e) => setF({ ...f, callsign: e.target.value })} placeholder="Maverick" /></div>
+        <div className="field"><label>Name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Pete Mitchell" /></div>
+        <div className="field"><label>Rank</label><input value={f.rank} onChange={(e) => setF({ ...f, rank: e.target.value })} placeholder="LT" /></div>
         <div className="field"><label>Billet</label><input value={f.billet} onChange={(e) => setF({ ...f, billet: e.target.value })} placeholder="Pilot / CO / OPSO" /></div>
         <div className="field"><label>Airframes</label><input value={f.airframes} onChange={(e) => setF({ ...f, airframes: e.target.value })} /></div>
         <div className="field"><label>Status</label>
@@ -90,7 +90,12 @@ function AddMember({ sqn, onDone }) {
 }
 
 function ImportCsv({ sqn, onDone }) {
-  const [csv, setCsv] = useState('callsign,name,rank,billet,airframes,notes\n');
+  const [csv, setCsv] = useState(
+    'callsign,name,rank,billet,airframes,notes\n' +
+    'Maverick,Pete Mitchell,LT,Pilot,F-14B,\n' +
+    'Goose,Nick Bradshaw,LTJG,RIO,F-14B,\n' +
+    'Iceman,Tom Kazansky,LT,Pilot,F-14B,\n'
+  );
   const [result, setResult] = useState(null);
   const submit = async (e) => {
     e.preventDefault();

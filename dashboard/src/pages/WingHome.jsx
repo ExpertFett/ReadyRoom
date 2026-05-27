@@ -83,10 +83,10 @@ function Squadrons({ wing, isAdmin, reload }) {
       {adding && (
         <form className="card" onSubmit={add} style={{ marginBottom: 14 }}>
           <div className="form-grid">
-            <div className="field"><label>Name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Jolly Rogers" /></div>
-            <div className="field"><label>Tag</label><input value={f.tag} onChange={(e) => setF({ ...f, tag: e.target.value })} placeholder="VFA-103" /></div>
+            <div className="field"><label>Name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Wolfpack" /></div>
+            <div className="field"><label>Tag</label><input value={f.tag} onChange={(e) => setF({ ...f, tag: e.target.value })} placeholder="VF-1" /></div>
           </div>
-          <div className="field"><label>Primary aircraft</label><input value={f.aircraft} onChange={(e) => setF({ ...f, aircraft: e.target.value })} placeholder="FA-18C" /></div>
+          <div className="field"><label>Primary aircraft</label><input value={f.aircraft} onChange={(e) => setF({ ...f, aircraft: e.target.value })} placeholder="F-14B Tomcat" /></div>
           <button className="primary">Add squadron</button>
         </form>
       )}
