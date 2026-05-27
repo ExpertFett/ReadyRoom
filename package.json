@@ -1,0 +1,21 @@
+{
+  "name": "readyroom",
+  "version": "0.1.0",
+  "description": "ReadyRoom — squadron/wing management for a DCS community: roster, quals, sorties, ops. Standalone, pairs with VectorBot + Mizmaker.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js",
+    "build": "npm --prefix dashboard install && npm --prefix dashboard run build",
+    "dashboard": "npm --prefix dashboard run dev"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "express-session": "^1.18.1"
+  }
+}
