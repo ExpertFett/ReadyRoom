@@ -141,7 +141,17 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 4px; }
 
 /* --- landing / hero --- */
 .landing { min-height: 100vh; }
-.landing-hero { max-width: 860px; margin: 0 auto; padding: 64px 24px 36px; text-align: center; }
+.landing-hero { position: relative; max-width: 860px; margin: 0 auto; padding: 64px 24px 36px; text-align: center; }
+/* soft blue glow behind the logo (matches the family hero look) */
+.landing-hero::before {
+  content: ''; position: absolute; z-index: 0; pointer-events: none;
+  top: -10px; left: 50%; transform: translateX(-50%);
+  width: 720px; max-width: 112%; height: 340px;
+  background: radial-gradient(ellipse at center,
+    rgba(76, 139, 245, 0.34) 0%, rgba(76, 139, 245, 0.14) 42%, rgba(76, 139, 245, 0) 70%);
+  filter: blur(26px);
+}
+.landing-hero > * { position: relative; z-index: 1; }
 /* Logo ships neon-on-black (no alpha); `screen` drops the black so only the glow composites onto the dark page. */
 .landing-logo { width: 460px; max-width: 88%; height: auto; display: block; margin: 0 auto 12px; mix-blend-mode: screen; }
 .landing-beta {
