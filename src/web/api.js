@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, raw } from 'express';
 import {
   createWing, getWings, getWing, updateWing, deleteWing,
   getWingIngestToken, regenerateWingIngestToken,
@@ -37,6 +37,7 @@ import {
 } from '../db/events.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, getActor } from './auth.js';
+import { parseMizSlots, flightsFromSlots } from '../services/mizParser.js';
 
 const cleanId = (v) => (v ? String(v).replace(/[^0-9]/g, '') || null : null);
 const str = (v, max = 2000) => (v == null ? null : String(v).slice(0, max));
@@ -540,6 +541,38 @@ export function apiRouter() {
     res.json(updateFlight(f.id, req.body || {}));
   });
   router.delete('/flights/:id', requireAdmin, (req, res) => res.json({ ok: deleteFlight(Number(req.params.id)) > 0 }));
+
+  // Import flights from a .miz upload (raw binary). Pass ?replace=1 to wipe existing flights first.
+  router.post('/missions/:id/import-miz', requireAdmin, raw({ type: '*/*', limit: '20mb' }), (req, res) => {
+    const mission = getMissionFull(Number(req.params.id));
+    if (!mission) return res.status(404).json({ error: 'not_found' });
+    if (!req.body || !req.body.length) return res.status(400).json({ error: 'empty_body' });
+    let slots;
+    try {
+      slots = parseMizSlots(req.body);
+    } catch (err) {
+      return res.status(400).json({ error: err.message || 'parse_failed' });
+    }
+    const flights = flightsFromSlots(slots);
+    const replace = req.query.replace === '1';
+    if (replace) for (const f of mission.flights) deleteFlight(f.id);
+    let order = replace ? 0 : (mission.flights.length || 0);
+    const created = flights.map((f) => addFlight(mission.id, {
+      sort_order: order++,
+      callsign: f.callsign,
+      aircraft: f.aircraft,
+      role: null,
+      slots: f.slots,
+      squadron_id: null,
+      notes: f.country ? `from .miz · ${f.side}/${f.country}` : 'from .miz',
+    }));
+    res.json({
+      ok: true,
+      parsed_slots: slots.length,
+      flights_created: created.length,
+      mission: getMissionFull(mission.id),
+    });
+  });
 
   // ----- squadron access & resources -----
   router.post('/missions/:id/access', requireAdmin, (req, res) => {

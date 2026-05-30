@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
@@ -93,10 +93,39 @@ function EditMission({ m, onDone }) {
 
 function Flights({ m, squadrons, me, reload }) {
   const [adding, setAdding] = useState(false);
+  const fileRef = useRef(null);
+
+  const importMiz = async (file) => {
+    const replace = m.flights.length > 0
+      ? confirm('Replace existing flights with the .miz contents?\nOK = replace · Cancel = append')
+      : false;
+    const buf = await file.arrayBuffer();
+    const res = await fetch(`/api/missions/${m.id}/import-miz${replace ? '?replace=1' : ''}`, {
+      method: 'POST', body: buf, credentials: 'same-origin',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(`Import failed: ${err.error || res.statusText}`);
+      return;
+    }
+    const data = await res.json();
+    alert(`Imported ${data.flights_created} flight(s) from ${data.parsed_slots} client slot(s).`);
+    reload();
+  };
+
   return (
     <section>
       <div className="between"><h2>Flights &amp; slots</h2>
-        {me.isAdmin && <button className="small" onClick={() => setAdding((v) => !v)}>{adding ? 'Cancel' : '+ Flight'}</button>}
+        {me.isAdmin && (
+          <div className="row">
+            <button className="small" onClick={() => fileRef.current?.click()}>Import .miz</button>
+            <input
+              ref={fileRef} type="file" accept=".miz" style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) importMiz(f); e.target.value = ''; }}
+            />
+            <button className="small" onClick={() => setAdding((v) => !v)}>{adding ? 'Cancel' : '+ Flight'}</button>
+          </div>
+        )}
       </div>
       {adding && <FlightForm missionId={m.id} squadrons={squadrons} defaultAircraft={m.primary_aircraft} onDone={() => { setAdding(false); reload(); }} />}
       {!m.flights.length ? <div className="empty">No flights yet.</div> : (
