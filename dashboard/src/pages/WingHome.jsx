@@ -66,12 +66,12 @@ function SetupWing({ isAdmin, onCreated }) {
 
 function Squadrons({ wing, isAdmin, reload }) {
   const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ name: '', tag: '', aircraft: '' });
+  const [f, setF] = useState({ name: '', tag: '', aircraft: '', kind: 'squadron' });
   const add = async (e) => {
     e.preventDefault();
     if (!f.name.trim()) return;
     await api.post('/api/squadrons', { wing_id: wing.id, ...f });
-    setF({ name: '', tag: '', aircraft: '' });
+    setF({ name: '', tag: '', aircraft: '', kind: 'squadron' });
     setAdding(false);
     reload();
   };
@@ -87,7 +87,11 @@ function Squadrons({ wing, isAdmin, reload }) {
             <div className="field"><label>Tag</label><input value={f.tag} onChange={(e) => setF({ ...f, tag: e.target.value })} placeholder="VF-1" /></div>
           </div>
           <div className="field"><label>Primary aircraft</label><input value={f.aircraft} onChange={(e) => setF({ ...f, aircraft: e.target.value })} placeholder="F-14B Tomcat" /></div>
-          <button className="primary">Add squadron</button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={f.kind === 'detachment'} onChange={(e) => setF({ ...f, kind: e.target.checked ? 'detachment' : 'squadron' })} />
+            This is a detachment (cross-attached pilots, e.g. a C-130 det)
+          </label>
+          <button className="primary">Add {f.kind === 'detachment' ? 'detachment' : 'squadron'}</button>
         </form>
       )}
       {!wing.squadrons.length ? (
@@ -100,6 +104,7 @@ function Squadrons({ wing, isAdmin, reload }) {
               <div>{s.tag ? s.name : ''}</div>
               {s.aircraft && <div className="small muted">{s.aircraft}</div>}
               <div className="count">{s.member_count} {s.member_count === 1 ? 'member' : 'members'}</div>
+              {s.kind === 'detachment' && <div className="det-flag">DETACHMENT</div>}
             </Link>
           ))}
         </div>
@@ -110,14 +115,14 @@ function Squadrons({ wing, isAdmin, reload }) {
 
 function Quals({ wingId, isAdmin }) {
   const [quals, setQuals] = useState([]);
-  const [f, setF] = useState({ code: '', name: '', category: '' });
+  const [f, setF] = useState({ code: '', name: '', category: '', is_tier: false, tier_order: '', tier_label: '' });
   const load = async () => setQuals(await api.get(`/api/quals?wing_id=${wingId}`));
   useEffect(() => { load(); }, [wingId]);
   const add = async (e) => {
     e.preventDefault();
     if (!f.code.trim() || !f.name.trim()) return;
-    await api.post('/api/quals', { wing_id: wingId, ...f });
-    setF({ code: '', name: '', category: '' });
+    await api.post('/api/quals', { wing_id: wingId, ...f, tier_order: Number(f.tier_order) || 0 });
+    setF({ code: '', name: '', category: '', is_tier: false, tier_order: '', tier_label: '' });
     load();
   };
   const del = async (id) => { await api.del(`/api/quals/${id}`); load(); };
@@ -129,16 +134,30 @@ function Quals({ wingId, isAdmin }) {
         {quals.map((q) => (
           <span key={q.id} className="chip" title={q.name}>
             <strong>{q.code}</strong> {q.name}
+            {q.is_tier ? <span className="tier" style={{ marginLeft: 4 }}>tier{q.tier_label ? `→${q.tier_label}` : ''}</span> : null}
             {isAdmin && <button onClick={() => del(q.id)} title="Remove">×</button>}
           </span>
         ))}
       </div>
       {isAdmin && (
-        <form className="row" onSubmit={add} style={{ alignItems: 'flex-end' }}>
-          <div style={{ width: 110 }}><label>Code</label><input value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="CQ" /></div>
-          <div style={{ flex: 1, minWidth: 160 }}><label>Name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Carrier Qualified" /></div>
-          <div style={{ width: 140 }}><label>Category</label><input value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} placeholder="Carrier" /></div>
-          <button className="small">Add</button>
+        <form onSubmit={add}>
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <div style={{ width: 110 }}><label>Code</label><input value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="CQ" /></div>
+            <div style={{ flex: 1, minWidth: 160 }}><label>Name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Carrier Qualified" /></div>
+            <div style={{ width: 140 }}><label>Category</label><input value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} placeholder="Carrier" /></div>
+            <button className="small">Add</button>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={f.is_tier} onChange={(e) => setF({ ...f, is_tier: e.target.checked })} />
+            Readiness-tier qual (counts toward a pilot's tier)
+          </label>
+          {f.is_tier && (
+            <div className="row" style={{ alignItems: 'flex-end', marginTop: 8 }}>
+              <div style={{ width: 130 }}><label>Tier order</label><input type="number" value={f.tier_order} onChange={(e) => setF({ ...f, tier_order: e.target.value })} placeholder="1" /></div>
+              <div style={{ width: 190 }}><label>Tier label granted</label><input value={f.tier_label} onChange={(e) => setF({ ...f, tier_label: e.target.value })} placeholder="e.g. FMQ" /></div>
+              <span className="muted small" style={{ flex: 1 }}>Lower order = earlier; the highest tier qual a pilot holds sets their tier.</span>
+            </div>
+          )}
         </form>
       )}
     </section>

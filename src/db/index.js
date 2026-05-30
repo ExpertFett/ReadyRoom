@@ -112,6 +112,14 @@ export function ensureColumn(table, column, type) {
   }
 }
 
+// --- Epic 1: roster & org depth ---
+ensureColumn('members', 'modex', 'TEXT');                              // hull/side number, e.g. "412"
+ensureColumn('members', 'subdivision', "TEXT NOT NULL DEFAULT 'main'"); // main|ready_reserve|candidate|frs
+ensureColumn('squadrons', 'kind', "TEXT NOT NULL DEFAULT 'squadron'");  // squadron|detachment
+ensureColumn('quals', 'is_tier', 'INTEGER NOT NULL DEFAULT 0');        // counts toward readiness tier
+ensureColumn('quals', 'tier_order', 'INTEGER');                        // progression order (lower = earlier)
+ensureColumn('quals', 'tier_label', 'TEXT');                           // tier granted when achieved (e.g. CMQ -> "FMQ")
+
 const safeParse = (s, fallback) => {
   try {
     return s ? JSON.parse(s) : fallback;
@@ -232,10 +240,10 @@ export function deleteSquadron(id) {
 // Members
 // ---------------------------------------------------------------------------
 const MEMBER_FIELDS =
-  'wing_id, squadron_id, discord_user_id, callsign, name, rank, billet, airframes, status, app_role, notes, joined_at';
+  'wing_id, squadron_id, discord_user_id, callsign, name, rank, billet, airframes, status, app_role, notes, joined_at, modex, subdivision';
 const insertMember = db.prepare(`
   INSERT INTO members (${MEMBER_FIELDS}, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectMember = db.prepare('SELECT * FROM members WHERE id = ?');
 const selectMembersByWing = db.prepare(
@@ -250,7 +258,7 @@ const selectMemberByDiscord = db.prepare(
 const updateMemberStmt = db.prepare(`
   UPDATE members SET squadron_id = ?, discord_user_id = ?, callsign = ?, name = ?,
     rank = ?, billet = ?, airframes = ?, status = ?, app_role = ?, notes = ?,
-    joined_at = ?, updated_at = ?
+    joined_at = ?, modex = ?, subdivision = ?, updated_at = ?
   WHERE id = ?
 `);
 const deleteMemberStmt = db.prepare('DELETE FROM members WHERE id = ?');
@@ -267,6 +275,8 @@ const normMember = (d) => ({
   app_role: ['admin', 'commander', 'member'].includes(d.app_role) ? d.app_role : 'member',
   notes: d.notes ?? null,
   joined_at: Number.isFinite(d.joined_at) ? d.joined_at : null,
+  modex: d.modex != null && String(d.modex) !== '' ? String(d.modex).slice(0, 12) : null,
+  subdivision: ['main', 'ready_reserve', 'candidate', 'frs'].includes(d.subdivision) ? d.subdivision : 'main',
 });
 
 export function createMember(wingId, d) {
@@ -274,7 +284,7 @@ export function createMember(wingId, d) {
   const now = Date.now();
   const info = insertMember.run(
     wingId, m.squadron_id, m.discord_user_id, m.callsign, m.name, m.rank, m.billet,
-    m.airframes, m.status, m.app_role, m.notes, m.joined_at, now, now
+    m.airframes, m.status, m.app_role, m.notes, m.joined_at, m.modex, m.subdivision, now, now
   );
   return getMember(Number(info.lastInsertRowid));
 }
@@ -295,7 +305,7 @@ export function updateMember(id, d) {
   const m = normMember(d);
   updateMemberStmt.run(
     m.squadron_id, m.discord_user_id, m.callsign, m.name, m.rank, m.billet,
-    m.airframes, m.status, m.app_role, m.notes, m.joined_at, Date.now(), id
+    m.airframes, m.status, m.app_role, m.notes, m.joined_at, m.modex, m.subdivision, Date.now(), id
   );
   return getMember(id);
 }

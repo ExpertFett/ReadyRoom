@@ -18,6 +18,11 @@ import {
   addResource, deleteResource,
   getDashboard,
 } from '../db/missions.js';
+import {
+  setSquadronKind, setQualTier,
+  getSquadronRoster, getSquadronReadiness,
+  attachMember, detachMember, getDetachmentRoster,
+} from '../db/roster.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, getActor } from './auth.js';
 
@@ -127,16 +132,24 @@ export function apiRouter() {
     const wingId = Number(b.wing_id);
     if (!wingId || !getWing(wingId)) return res.status(400).json({ error: 'bad_wing' });
     if (!str(b.name, 120)) return res.status(400).json({ error: 'missing_name' });
-    res.json(createSquadron(wingId, {
+    const created = createSquadron(wingId, {
       name: str(b.name, 120), tag: str(b.tag, 32), aircraft: str(b.aircraft, 120),
       description: str(b.description, 2000), sort_order: b.sort_order,
-    }));
+    });
+    if (b.kind === 'detachment') setSquadronKind(created.id, 'detachment');
+    res.json(getSquadron(created.id));
   });
 
   router.get('/squadrons/:id', (req, res) => {
     const sqn = getSquadron(Number(req.params.id));
     if (!sqn) return res.status(404).json({ error: 'not_found' });
-    res.json({ ...sqn, members: getMembersBySquadron(sqn.id) });
+    res.json({
+      ...sqn,
+      members: getMembersBySquadron(sqn.id),    // flat list (kept for compatibility)
+      roster: getSquadronRoster(sqn.id),        // grouped by subdivision, with derived tier
+      readiness: getSquadronReadiness(sqn.id),  // tier counts
+      det_roster: sqn.kind === 'detachment' ? getDetachmentRoster(sqn.id) : null,
+    });
   });
 
   router.put('/squadrons/:id', requireAdmin, (req, res) => {
@@ -167,11 +180,25 @@ export function apiRouter() {
         callsign: r.callsign || null, name: r.name || null,
         rank: r.rank || null, billet: r.billet || null,
         airframes: r.airframes || sqn.aircraft || null,
+        modex: r.modex || null, subdivision: r.subdivision || 'main',
         notes: r.notes || null,
       });
       imported++;
     }
     res.json({ ok: true, imported, total: rows.length });
+  });
+
+  // ----- detachment cross-attachments -----
+  router.post('/squadrons/:id/attach', requireAdmin, (req, res) => {
+    const sqn = getSquadron(Number(req.params.id));
+    if (!sqn) return res.status(404).json({ error: 'not_found' });
+    const memberId = Number(req.body?.member_id);
+    if (!memberId || !getMember(memberId)) return res.status(400).json({ error: 'bad_member' });
+    attachMember(sqn.id, memberId, req.body?.attach_type, str(req.body?.note, 200));
+    res.json({ ok: true });
+  });
+  router.delete('/squadrons/:id/attach/:memberId', requireAdmin, (req, res) => {
+    res.json({ ok: detachMember(Number(req.params.id), Number(req.params.memberId)) > 0 });
   });
 
   // ----- members -----
@@ -193,6 +220,7 @@ export function apiRouter() {
         discord_user_id: cleanId(b.discord_user_id),
         callsign: str(b.callsign, 60), name: str(b.name, 120), rank: str(b.rank, 60),
         billet: str(b.billet, 60), airframes: str(b.airframes, 200),
+        modex: str(b.modex, 12), subdivision: b.subdivision,
         status: b.status, app_role: b.app_role, notes: str(b.notes, 4000),
         joined_at: b.joined_at ? new Date(b.joined_at).getTime() : null,
       }));
@@ -225,6 +253,7 @@ export function apiRouter() {
           discord_user_id: cleanId(b.discord_user_id),
           callsign: str(b.callsign, 60), name: str(b.name, 120), rank: str(b.rank, 60),
           billet: str(b.billet, 60), airframes: str(b.airframes, 200),
+          modex: str(b.modex, 12), subdivision: b.subdivision,
           status: b.status, app_role: b.app_role, notes: str(b.notes, 4000),
           joined_at: b.joined_at ? new Date(b.joined_at).getTime() : member.joined_at,
         }
@@ -277,10 +306,18 @@ export function apiRouter() {
     if (!wingId || !getWing(wingId)) return res.status(400).json({ error: 'bad_wing' });
     if (!str(b.code, 30) || !str(b.name, 120)) return res.status(400).json({ error: 'missing_fields' });
     try {
-      res.json(createQual(wingId, {
+      const qual = createQual(wingId, {
         code: str(b.code, 30), name: str(b.name, 120), category: str(b.category, 60),
         description: str(b.description, 2000), sort_order: b.sort_order,
-      }));
+      });
+      if (b.is_tier) {
+        setQualTier(qual.id, {
+          is_tier: true,
+          tier_order: Number(b.tier_order) || 0,
+          tier_label: str(b.tier_label, 20) || qual.code,
+        });
+      }
+      res.json({ ...qual, is_tier: b.is_tier ? 1 : 0, tier_order: Number(b.tier_order) || 0, tier_label: b.is_tier ? (str(b.tier_label, 20) || qual.code) : null });
     } catch (err) {
       res.status(400).json({ error: String(err.message).includes('UNIQUE') ? 'duplicate_code' : 'create_failed' });
     }
