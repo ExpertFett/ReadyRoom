@@ -120,6 +120,10 @@ ensureColumn('quals', 'is_tier', 'INTEGER NOT NULL DEFAULT 0');        // counts
 ensureColumn('quals', 'tier_order', 'INTEGER');                        // progression order (lower = earlier)
 ensureColumn('quals', 'tier_label', 'TEXT');                           // tier granted when achieved (e.g. CMQ -> "FMQ")
 
+// --- Epic 5b: Ops Bot publish bridge (Discord event embeds) ---
+ensureColumn('wings', 'ops_bot_url', 'TEXT');     // base URL of the Ops Bot (e.g. https://dcsoptbot-production-0c4b.up.railway.app)
+ensureColumn('wings', 'ops_bot_token', 'TEXT');   // per-guild outbound token revealed by the Ops Bot dashboard
+
 const safeParse = (s, fallback) => {
   try {
     return s ? JSON.parse(s) : fallback;
@@ -178,6 +182,18 @@ export function regenerateWingIngestToken(id) {
   const token = randomBytes(24).toString('hex');
   setWingTokenStmt.run(token, id);
   return token;
+}
+
+const setWingOpsBotStmt = db.prepare(
+  'UPDATE wings SET ops_bot_url = ?, ops_bot_token = ? WHERE id = ?'
+);
+export function setWingOpsBot(id, { ops_bot_url, ops_bot_token }) {
+  setWingOpsBotStmt.run(
+    ops_bot_url ? String(ops_bot_url).slice(0, 500) : null,
+    ops_bot_token ? String(ops_bot_token).slice(0, 200) : null,
+    id
+  );
+  return getWing(id);
 }
 
 // ---------------------------------------------------------------------------

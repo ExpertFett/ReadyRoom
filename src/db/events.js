@@ -109,6 +109,13 @@ export function deleteEvent(id) {
   return deleteEventStmt.run(id).changes;
 }
 
+const setEventDiscordStmt = db.prepare(
+  'UPDATE events SET discord_channel_id = ?, discord_message_id = ? WHERE id = ?'
+);
+export function setEventDiscord(id, channelId, messageId) {
+  setEventDiscordStmt.run(channelId || null, messageId || null, id);
+}
+
 // --- list events in a range (for calendar) ------------------------------
 const selectEventsInRange = db.prepare(`
   SELECT * FROM events

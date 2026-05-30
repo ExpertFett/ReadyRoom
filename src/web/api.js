@@ -1,7 +1,7 @@
 import { Router, raw } from 'express';
 import {
   createWing, getWings, getWing, updateWing, deleteWing,
-  getWingIngestToken, regenerateWingIngestToken,
+  getWingIngestToken, regenerateWingIngestToken, setWingOpsBot,
   createSquadron, getSquadrons, getSquadron, updateSquadron, deleteSquadron,
   createMember, getMember, getMembersByWing, getMembersBySquadron, updateMember, deleteMember,
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
@@ -33,8 +33,9 @@ import {
   createEvent, getEvent, updateEvent, deleteEvent, getEventsInRange,
   markAttendance, clearAttendance, getEventAttendance, getEventRoster,
   createLOA, getLOA, setLOAStatus, deleteLOA, getUpcomingLOAs, getMemberLOAs,
-  getAttendanceMetrics, getPilotPerformance,
+  getAttendanceMetrics, getPilotPerformance, setEventDiscord,
 } from '../db/events.js';
+import { publishEvent as opsbotPublishEvent } from '../services/opsbotBridge.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, getActor } from './auth.js';
 import { parseMizSlots, flightsFromSlots } from '../services/mizParser.js';
@@ -131,6 +132,16 @@ export function apiRouter() {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
     res.json({ ingest_url: `${getBaseUrl()}/ingest/${regenerateWingIngestToken(wing.id)}` });
+  });
+
+  // Wing-level Ops Bot publish settings (Discord embed bridge — Epic 5b).
+  router.put('/wings/:id/ops-bot', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json(setWingOpsBot(wing.id, {
+      ops_bot_url: str(req.body?.ops_bot_url, 500),
+      ops_bot_token: str(req.body?.ops_bot_token, 200),
+    }));
   });
 
   // ----- squadrons -----
@@ -641,12 +652,26 @@ export function apiRouter() {
     if (!str(b.title, 200)) return res.status(400).json({ error: 'missing_title' });
     const start = ms(b.start_at);
     if (!start) return res.status(400).json({ error: 'missing_start_at' });
-    res.json(createEvent(wingId, {
+    const event = createEvent(wingId, {
       squadron_id: b.squadron_id ? Number(b.squadron_id) : null,
       title: str(b.title, 200), description: str(b.description, 8000),
       kind: b.kind, start_at: start, end_at: ms(b.end_at),
       multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
-    }, getActor(req).user?.id || null));
+    }, getActor(req).user?.id || null);
+
+    // Fire-and-forget: drop a Discord embed via Ops Bot if the wing is wired up.
+    const wing = getWing(wingId);
+    if (wing.ops_bot_url && wing.ops_bot_token) {
+      opsbotPublishEvent(wing, {
+        title: event.title,
+        description: event.description,
+        kind: event.kind,
+        start_at: event.start_at,
+        url: `${getBaseUrl()}/events/${event.id}`,
+      }).then((r) => { if (r) setEventDiscord(event.id, r.channel_id, r.message_id); });
+    }
+
+    res.json(event);
   });
 
   router.get('/events/:id', (req, res) => {

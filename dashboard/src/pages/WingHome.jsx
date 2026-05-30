@@ -34,6 +34,7 @@ export default function WingHome() {
       <Currency wingId={wing.id} />
       {me.isAdmin && <SortieFeed wingId={wing.id} />}
       {me.isAdmin && <Ingest wingId={wing.id} />}
+      {me.isAdmin && <DiscordPublish wing={wing} />}
     </div>
   );
 }
@@ -213,6 +214,41 @@ function SortieFeed({ wingId }) {
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+function DiscordPublish({ wing }) {
+  const [f, setF] = useState({ ops_bot_url: wing.ops_bot_url || '', ops_bot_token: wing.ops_bot_token || '' });
+  const [status, setStatus] = useState('');
+  useEffect(() => { setF({ ops_bot_url: wing.ops_bot_url || '', ops_bot_token: wing.ops_bot_token || '' }); }, [wing.id]);
+  const save = async (e) => {
+    e.preventDefault();
+    setStatus('Saving…');
+    try { await api.put(`/api/wings/${wing.id}/ops-bot`, f); setStatus('Saved ✓'); }
+    catch (err) { setStatus(`Save failed: ${err.message}`); }
+  };
+  const wired = wing.ops_bot_url && wing.ops_bot_token;
+  return (
+    <section>
+      <h2>Discord publish <span className={`badge ${wired ? 'active' : 'reserve'}`} style={{ marginLeft: 8, fontSize: 11 }}>{wired ? 'wired' : 'not configured'}</span></h2>
+      <form className="card" onSubmit={save}>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          When you create an event here, drop a Discord embed in your squadron's events channel via Ops Bot.
+          Get both values from your Ops Bot dashboard → <b>DCS Server → ReadyRoom integration → Inbound</b>.
+          Leave blank to disable.
+        </p>
+        <div className="field"><label>Ops Bot URL</label>
+          <input value={f.ops_bot_url} onChange={(e) => setF({ ...f, ops_bot_url: e.target.value })}
+                 placeholder="https://your-opsbot.up.railway.app" /></div>
+        <div className="field"><label>Outbound token <span className="muted small">(treat like a password)</span></label>
+          <input type="password" value={f.ops_bot_token} onChange={(e) => setF({ ...f, ops_bot_token: e.target.value })}
+                 placeholder="(paste from Ops Bot)" /></div>
+        <div className="row" style={{ alignItems: 'center' }}>
+          <button className="small primary">Save</button>
+          {status && <span className="muted small">{status}</span>}
+        </div>
+      </form>
     </section>
   );
 }
