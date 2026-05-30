@@ -67,11 +67,81 @@ export default function Dashboard() {
       <section style={{ marginTop: 8 }}>
         <h2>Quick actions</h2>
         <div className="row">
+          <Link className="btn" to="/events">Calendar</Link>
           <Link className="btn" to="/missions">All missions</Link>
           {me.isAdmin && <Link className="btn primary" to="/missions?new=1">Create mission</Link>}
+          <Link className="btn" to="/metrics">Attendance metrics</Link>
           <Link className="btn" to="/wing">Wing &amp; roster</Link>
         </div>
       </section>
+
+      <LOAPanel wing={activeWing} me={me} />
     </div>
+  );
+}
+
+function LOAPanel({ wing, me }) {
+  const [list, setList] = useState([]);
+  const [requesting, setRequesting] = useState(false);
+  const load = async () => {
+    if (!wing) return;
+    setList(await api.get(`/api/wings/${wing.id}/loas`));
+  };
+  useEffect(() => { load(); }, [wing]);
+  const approve = async (id, status) => { await api.put(`/api/loas/${id}`, { status }); load(); };
+  const remove = async (id) => { if (confirm('Remove this LOA?')) { await api.del(`/api/loas/${id}`); load(); } };
+  return (
+    <section style={{ marginTop: 8 }}>
+      <div className="between"><h2>Leave of absence</h2>
+        {me.member && <button className="small" onClick={() => setRequesting((v) => !v)}>{requesting ? 'Cancel' : 'Request LOA'}</button>}
+      </div>
+      {requesting && me.member && <LOAForm memberId={me.member.id} onDone={() => { setRequesting(false); load(); }} />}
+      {!list.length ? <div className="empty">No upcoming LOAs.</div> : (
+        <div className="card">
+          {list.map((l) => (
+            <div key={l.id} className="between" style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <strong>{l.callsign}</strong>
+                {l.sqn_tag && <span className="muted small"> · {l.sqn_tag}</span>}
+                <span className="muted small"> · {fmt(l.start_at)} → {fmt(l.end_at)}</span>
+                {l.reason && <div className="small muted">{l.reason}</div>}
+              </div>
+              <div className="row">
+                <span className={`badge ${l.status === 'approved' ? 'active' : l.status === 'denied' ? 'retired' : 'reserve'}`}>{l.status}</span>
+                {me.isAdmin && l.status === 'requested' && (
+                  <>
+                    <button className="small primary" onClick={() => approve(l.id, 'approved')}>Approve</button>
+                    <button className="small" onClick={() => approve(l.id, 'denied')}>Deny</button>
+                  </>
+                )}
+                {(me.isAdmin || (me.member && me.member.id === l.member_id)) && (
+                  <button className="small danger" onClick={() => remove(l.id)}>×</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LOAForm({ memberId, onDone }) {
+  const [f, setF] = useState({ start_at: '', end_at: '', reason: '' });
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!f.start_at || !f.end_at) return;
+    await api.post(`/api/members/${memberId}/loas`, f);
+    onDone();
+  };
+  return (
+    <form className="card" onSubmit={submit} style={{ marginBottom: 14 }}>
+      <div className="form-grid">
+        <div className="field"><label>From</label><input type="date" value={f.start_at} onChange={(e) => setF({ ...f, start_at: e.target.value })} /></div>
+        <div className="field"><label>To</label><input type="date" value={f.end_at} onChange={(e) => setF({ ...f, end_at: e.target.value })} /></div>
+      </div>
+      <div className="field"><label>Reason</label><input value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} placeholder="Training detachment, leave, etc." /></div>
+      <button className="primary">Submit request</button>
+    </form>
   );
 }

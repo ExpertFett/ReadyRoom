@@ -9,6 +9,9 @@ import MemberDetail from './pages/MemberDetail.jsx';
 import Missions from './pages/Missions.jsx';
 import MissionDetail from './pages/MissionDetail.jsx';
 import TrainingBoard from './pages/TrainingBoard.jsx';
+import Calendar from './pages/Calendar.jsx';
+import EventDetail from './pages/EventDetail.jsx';
+import Metrics from './pages/Metrics.jsx';
 
 const MeContext = createContext(null);
 export const useMe = () => useContext(MeContext);
@@ -56,7 +59,9 @@ export default function App() {
         {activeWing && (
           <nav className="nav">
             <NavLink to="/" end>Dashboard</NavLink>
+            <NavLink to="/events">Events</NavLink>
             <NavLink to="/missions">Missions</NavLink>
+            <NavLink to="/metrics">Metrics</NavLink>
             <NavLink to="/wing">Wing</NavLink>
           </nav>
         )}
@@ -74,6 +79,9 @@ export default function App() {
           <Route path="/squadrons/:id" element={<Squadron />} />
           <Route path="/members/:id" element={<MemberDetail />} />
           <Route path="/training/:qualId" element={<TrainingBoard />} />
+          <Route path="/events" element={<Calendar />} />
+          <Route path="/events/:id" element={<EventDetail />} />
+          <Route path="/metrics" element={<Metrics />} />
         </Routes>
       </main>
     </MeContext.Provider>

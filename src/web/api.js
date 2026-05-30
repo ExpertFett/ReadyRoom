@@ -29,6 +29,12 @@ import {
   getMemberActivitiesForQual, getMemberQualProgress,
   setQualCadence, getWingCurrency, getTrainingBoard,
 } from '../db/quals.js';
+import {
+  createEvent, getEvent, updateEvent, deleteEvent, getEventsInRange,
+  markAttendance, clearAttendance, getEventAttendance, getEventRoster,
+  createLOA, getLOA, setLOAStatus, deleteLOA, getUpcomingLOAs, getMemberLOAs,
+  getAttendanceMetrics, getPilotPerformance,
+} from '../db/events.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, getActor } from './auth.js';
 
@@ -448,7 +454,13 @@ export function apiRouter() {
   // =====================================================================
   // Missions / ops (Phase A) — the bot<->editor bridge object
   // =====================================================================
-  const ms = (v) => { const t = v ? new Date(v).getTime() : NaN; return Number.isFinite(t) ? t : null; };
+  const ms = (v) => {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v);
+    const t = new Date(v).getTime();
+    return Number.isFinite(t) ? t : null;
+  };
 
   // ----- campaigns -----
   router.get('/campaigns', (req, res) => {
@@ -572,6 +584,137 @@ export function apiRouter() {
     const wingId = Number(req.query.wing_id);
     if (!wingId) return res.status(400).json({ error: 'missing_wing_id' });
     res.json(getDashboard(wingId, getActor(req).member?.id || null));
+  });
+
+  // =====================================================================
+  // Epic 3: events / attendance / LOA / metrics
+  // (reuses the `ms` date helper declared in the missions block above)
+  // =====================================================================
+
+  // ----- events / calendar -----
+  router.get('/wings/:id/events', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const from = ms(req.query.from);
+    const to = ms(req.query.to);
+    if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
+    res.json(getEventsInRange(wing.id, from, to, { squadronId: Number(req.query.squadron_id) || null }));
+  });
+
+  router.post('/events', requireAdmin, (req, res) => {
+    const b = req.body || {};
+    const wingId = Number(b.wing_id);
+    if (!wingId || !getWing(wingId)) return res.status(400).json({ error: 'bad_wing' });
+    if (!str(b.title, 200)) return res.status(400).json({ error: 'missing_title' });
+    const start = ms(b.start_at);
+    if (!start) return res.status(400).json({ error: 'missing_start_at' });
+    res.json(createEvent(wingId, {
+      squadron_id: b.squadron_id ? Number(b.squadron_id) : null,
+      title: str(b.title, 200), description: str(b.description, 8000),
+      kind: b.kind, start_at: start, end_at: ms(b.end_at),
+      multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
+    }, getActor(req).user?.id || null));
+  });
+
+  router.get('/events/:id', (req, res) => {
+    const e = getEvent(Number(req.params.id));
+    if (!e) return res.status(404).json({ error: 'not_found' });
+    res.json({ ...e, roster: getEventRoster(e.id), attendance: getEventAttendance(e.id) });
+  });
+
+  router.put('/events/:id', requireAdmin, (req, res) => {
+    const e = getEvent(Number(req.params.id));
+    if (!e) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    res.json(updateEvent(e.id, {
+      squadron_id: b.squadron_id ?? e.squadron_id,
+      title: str(b.title, 200) || e.title, description: str(b.description, 8000),
+      kind: b.kind ?? e.kind, start_at: ms(b.start_at) ?? e.start_at, end_at: ms(b.end_at),
+      multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
+    }));
+  });
+
+  router.delete('/events/:id', requireAdmin, (req, res) => {
+    res.json({ ok: deleteEvent(Number(req.params.id)) > 0 });
+  });
+
+  // ----- attendance -----
+  router.post('/events/:id/attendance', requireAdmin, (req, res) => {
+    const e = getEvent(Number(req.params.id));
+    if (!e) return res.status(404).json({ error: 'not_found' });
+    const memberId = Number(req.body?.member_id);
+    if (!memberId) return res.status(400).json({ error: 'missing_member_id' });
+    try {
+      markAttendance(e.id, memberId, req.body?.status, {
+        recordedBy: getActor(req).user?.id, notes: str(req.body?.notes, 500),
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'mark_failed' });
+    }
+  });
+  router.delete('/events/:id/attendance/:memberId', requireAdmin, (req, res) => {
+    res.json({ ok: clearAttendance(Number(req.params.id), Number(req.params.memberId)) > 0 });
+  });
+
+  // ----- LOA -----
+  router.get('/wings/:id/loas', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json(getUpcomingLOAs(wing.id));
+  });
+  router.post('/members/:id/loas', (req, res) => {
+    const member = getMember(Number(req.params.id));
+    if (!member) return res.status(404).json({ error: 'not_found' });
+    const actor = getActor(req);
+    if (!actor.isAdmin && actor.member?.id !== member.id) return res.status(403).json({ error: 'forbidden' });
+    const b = req.body || {};
+    try {
+      res.json(createLOA(member.id, {
+        start_at: ms(b.start_at), end_at: ms(b.end_at), reason: str(b.reason, 500),
+      }));
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'bad_request' });
+    }
+  });
+  router.put('/loas/:id', requireAdmin, (req, res) => {
+    const loa = getLOA(Number(req.params.id));
+    if (!loa) return res.status(404).json({ error: 'not_found' });
+    try {
+      res.json(setLOAStatus(loa.id, req.body?.status, getActor(req).user?.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'bad_request' });
+    }
+  });
+  router.delete('/loas/:id', (req, res) => {
+    const loa = getLOA(Number(req.params.id));
+    if (!loa) return res.status(404).json({ error: 'not_found' });
+    const actor = getActor(req);
+    if (!actor.isAdmin && actor.member?.id !== loa.member_id) return res.status(403).json({ error: 'forbidden' });
+    res.json({ ok: deleteLOA(loa.id) > 0 });
+  });
+  router.get('/members/:id/loas', (req, res) => {
+    const member = getMember(Number(req.params.id));
+    if (!member) return res.status(404).json({ error: 'not_found' });
+    res.json(getMemberLOAs(member.id));
+  });
+
+  // ----- metrics -----
+  router.get('/wings/:id/attendance-metrics', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const from = ms(req.query.from);
+    const to = ms(req.query.to);
+    if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
+    res.json(getAttendanceMetrics(wing.id, from, to));
+  });
+  router.get('/wings/:id/pilot-performance', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const from = ms(req.query.from);
+    const to = ms(req.query.to);
+    if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
+    res.json(getPilotPerformance(wing.id, from, to));
   });
 
   return router;

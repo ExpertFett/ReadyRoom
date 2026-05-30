@@ -246,3 +246,40 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 4px; }
 .qprog { display: inline-block; width: 90px; height: 6px; background: var(--panel-2); border-radius: 4px; overflow: hidden; vertical-align: middle; }
 .qprog > span { display: block; height: 100%; background: var(--accent); }
 .chip a, .chip a:hover { color: inherit; text-decoration: none; }
+
+/* --- month calendar (Events) --- */
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px;
+  background: var(--border); border: 1px solid var(--border); border-radius: 8px;
+  margin-top: 12px; overflow: hidden;
+}
+.cal-head { background: var(--panel); padding: 8px; text-align: center; font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 1px; }
+.cal-cell {
+  background: var(--bg); min-height: 100px; padding: 6px 6px 8px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.cal-cell.out { background: var(--panel); color: var(--muted); }
+.cal-cell.today { background: rgba(76, 139, 245, 0.10); outline: 1px solid var(--accent); outline-offset: -1px; }
+.cal-date { font-size: 11px; font-weight: 700; color: var(--muted); }
+.cal-cell.today .cal-date { color: var(--accent); }
+.cal-evt {
+  display: block; font-size: 11.5px; padding: 2px 6px; border-radius: 3px;
+  background: rgba(76, 139, 245, 0.15); border-left: 3px solid var(--accent); color: var(--text);
+  text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cal-evt:hover { text-decoration: none; filter: brightness(1.15); }
+.cal-evt.extra_credit { background: rgba(240, 180, 41, 0.18); border-left-color: #f0b429; }
+
+/* --- stat cards (Metrics) --- */
+.stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+.stat-card .stat-label { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+.stat-card .stat-value { font-size: 28px; font-weight: 800; margin: 4px 0; }
+.stat-good .stat-value { color: var(--accent-2); }
+.stat-info .stat-value { color: var(--accent); }
+.stat-warn .stat-value { color: var(--warn); }
+.stat-bad .stat-value { color: var(--danger); }
+
+/* --- attendance badges --- */
+.badge.att-present, .badge.att-extra_credit { color: var(--accent-2); border-color: var(--accent-2); }
+.badge.att-excused { color: var(--warn); border-color: var(--warn); }
+.badge.att-ua, .badge.att-absent { color: var(--danger); border-color: var(--danger); }
