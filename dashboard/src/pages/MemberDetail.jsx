@@ -162,7 +162,13 @@ function Quals({ m, quals, isAdmin, onChanged }) {
         const cur = held.get(q.id);
         return (
           <div key={q.id} className="between" style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-            <div><strong>{q.code}</strong> <span className="muted small">{q.name}</span></div>
+            <div><strong>{q.code}</strong> <span className="muted small">{q.name}</span>
+              {cur?.progress?.total > 0 && (
+                <span className="qprog" title={`${cur.progress.signed}/${cur.progress.total} activities`} style={{ marginLeft: 8 }}>
+                  <span style={{ width: `${(cur.progress.signed / cur.progress.total) * 100}%` }} />
+                </span>
+              )}
+            </div>
             {isAdmin ? (
               <select value={cur?.status || 'none'} onChange={(e) => setQual(q.id, e.target.value)} style={{ width: 130 }}>
                 <option value="none">—</option>

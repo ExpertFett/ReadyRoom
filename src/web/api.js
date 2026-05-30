@@ -23,6 +23,12 @@ import {
   getSquadronRoster, getSquadronReadiness,
   attachMember, detachMember, getDetachmentRoster,
 } from '../db/roster.js';
+import {
+  createActivity, getActivities, getActivity, updateActivity, deleteActivity,
+  signOffActivity, removeSignoff,
+  getMemberActivitiesForQual, getMemberQualProgress,
+  setQualCadence, getWingCurrency, getTrainingBoard,
+} from '../db/quals.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, getActor } from './auth.js';
 
@@ -235,7 +241,7 @@ export function apiRouter() {
     res.json({
       ...member,
       aliases: getAliases(member.id),
-      quals: getMemberQuals(member.id),
+      quals: getMemberQuals(member.id).map((q) => ({ ...q, progress: getMemberQualProgress(member.id, q.qual_id) })),
       sorties: getMemberSorties(member.id, 50),
     });
   });
@@ -317,7 +323,20 @@ export function apiRouter() {
           tier_label: str(b.tier_label, 20) || qual.code,
         });
       }
-      res.json({ ...qual, is_tier: b.is_tier ? 1 : 0, tier_order: Number(b.tier_order) || 0, tier_label: b.is_tier ? (str(b.tier_label, 20) || qual.code) : null });
+      if (b.currency_days || b.completion_days) {
+        setQualCadence(qual.id, {
+          currency_days: Number(b.currency_days) || null,
+          completion_days: Number(b.completion_days) || null,
+        });
+      }
+      res.json({
+        ...qual,
+        is_tier: b.is_tier ? 1 : 0,
+        tier_order: Number(b.tier_order) || 0,
+        tier_label: b.is_tier ? (str(b.tier_label, 20) || qual.code) : null,
+        currency_days: Number(b.currency_days) || null,
+        completion_days: Number(b.completion_days) || null,
+      });
     } catch (err) {
       res.status(400).json({ error: String(err.message).includes('UNIQUE') ? 'duplicate_code' : 'create_failed' });
     }
@@ -342,6 +361,74 @@ export function apiRouter() {
 
   router.delete('/members/:id/quals/:qualId', requireAdmin, (req, res) => {
     res.json({ ok: removeMemberQual(Number(req.params.id), Number(req.params.qualId)) > 0 });
+  });
+
+  // ===== Epic 2: qualification activities + sign-offs + currency =====
+  router.get('/quals/:id/activities', (req, res) => {
+    const qual = getQual(Number(req.params.id));
+    if (!qual) return res.status(404).json({ error: 'not_found' });
+    res.json(getActivities(qual.id));
+  });
+  router.post('/quals/:id/activities', requireAdmin, (req, res) => {
+    const qual = getQual(Number(req.params.id));
+    if (!qual) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    if (!str(b.name, 200)) return res.status(400).json({ error: 'missing_name' });
+    res.json(createActivity(qual.id, {
+      name: str(b.name, 200), group_name: str(b.group_name, 80),
+      description: str(b.description, 2000),
+      is_currency: !!b.is_currency, sort_order: b.sort_order,
+    }));
+  });
+  router.put('/activities/:id', requireAdmin, (req, res) => {
+    const a = getActivity(Number(req.params.id));
+    if (!a) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    res.json(updateActivity(a.id, {
+      name: str(b.name, 200) || a.name, group_name: str(b.group_name, 80),
+      description: str(b.description, 2000),
+      is_currency: !!b.is_currency, sort_order: b.sort_order ?? a.sort_order,
+    }));
+  });
+  router.delete('/activities/:id', requireAdmin, (req, res) => {
+    res.json({ ok: deleteActivity(Number(req.params.id)) > 0 });
+  });
+
+  // sign-offs (admin/instructor): one per (member, activity)
+  router.post('/members/:id/signoffs/:activityId', requireAdmin, (req, res) => {
+    const m = getMember(Number(req.params.id));
+    const a = getActivity(Number(req.params.activityId));
+    if (!m || !a) return res.status(404).json({ error: 'not_found' });
+    signOffActivity(m.id, a.id, {
+      status: req.body?.status, signerId: getActor(req).member?.id,
+      notes: str(req.body?.notes, 500),
+    });
+    res.json({ ok: true });
+  });
+  router.delete('/members/:id/signoffs/:activityId', requireAdmin, (req, res) => {
+    res.json({ ok: removeSignoff(Number(req.params.id), Number(req.params.activityId)) > 0 });
+  });
+
+  // per-member per-qual activity list (powers the member detail expansion)
+  router.get('/members/:id/quals/:qualId/activities', (req, res) => {
+    const m = getMember(Number(req.params.id));
+    const q = getQual(Number(req.params.qualId));
+    if (!m || !q) return res.status(404).json({ error: 'not_found' });
+    res.json(getMemberActivitiesForQual(m.id, q.id));
+  });
+
+  // training-board matrix: pilots × activities for one qual
+  router.get('/quals/:id/board', (req, res) => {
+    const board = getTrainingBoard(Number(req.params.id), { squadronId: Number(req.query.squadron_id) || null });
+    if (!board) return res.status(404).json({ error: 'not_found' });
+    res.json(board);
+  });
+
+  // currency status across a wing (for the currency panel)
+  router.get('/wings/:id/currency', (req, res) => {
+    const w = getWing(Number(req.params.id));
+    if (!w) return res.status(404).json({ error: 'not_found' });
+    res.json(getWingCurrency(w.id));
   });
 
   // ----- sortie activity -----

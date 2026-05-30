@@ -31,6 +31,7 @@ export default function WingHome() {
 
       <Squadrons wing={wing} isAdmin={me.isAdmin} reload={loadWings} />
       <Quals wingId={wing.id} isAdmin={me.isAdmin} />
+      <Currency wingId={wing.id} />
       {me.isAdmin && <SortieFeed wingId={wing.id} />}
       {me.isAdmin && <Ingest wingId={wing.id} />}
     </div>
@@ -115,14 +116,14 @@ function Squadrons({ wing, isAdmin, reload }) {
 
 function Quals({ wingId, isAdmin }) {
   const [quals, setQuals] = useState([]);
-  const [f, setF] = useState({ code: '', name: '', category: '', is_tier: false, tier_order: '', tier_label: '' });
+  const [f, setF] = useState({ code: '', name: '', category: '', is_tier: false, tier_order: '', tier_label: '', currency_days: '' });
   const load = async () => setQuals(await api.get(`/api/quals?wing_id=${wingId}`));
   useEffect(() => { load(); }, [wingId]);
   const add = async (e) => {
     e.preventDefault();
     if (!f.code.trim() || !f.name.trim()) return;
     await api.post('/api/quals', { wing_id: wingId, ...f, tier_order: Number(f.tier_order) || 0 });
-    setF({ code: '', name: '', category: '', is_tier: false, tier_order: '', tier_label: '' });
+    setF({ code: '', name: '', category: '', is_tier: false, tier_order: '', tier_label: '', currency_days: '' });
     load();
   };
   const del = async (id) => { await api.del(`/api/quals/${id}`); load(); };
@@ -132,9 +133,10 @@ function Quals({ wingId, isAdmin }) {
       <div className="chip-row" style={{ marginBottom: 12 }}>
         {quals.length === 0 && <span className="muted small">No quals defined yet.</span>}
         {quals.map((q) => (
-          <span key={q.id} className="chip" title={q.name}>
-            <strong>{q.code}</strong> {q.name}
+          <span key={q.id} className="chip" title="Open training board">
+            <Link to={`/training/${q.id}`}><strong>{q.code}</strong> {q.name}</Link>
             {q.is_tier ? <span className="tier" style={{ marginLeft: 4 }}>tier{q.tier_label ? `→${q.tier_label}` : ''}</span> : null}
+            {q.currency_days ? <span className="muted small" style={{ marginLeft: 4 }}>{q.currency_days}d</span> : null}
             {isAdmin && <button onClick={() => del(q.id)} title="Remove">×</button>}
           </span>
         ))}
@@ -158,8 +160,33 @@ function Quals({ wingId, isAdmin }) {
               <span className="muted small" style={{ flex: 1 }}>Lower order = earlier; the highest tier qual a pilot holds sets their tier.</span>
             </div>
           )}
+          <div className="row" style={{ alignItems: 'flex-end', marginTop: 8 }}>
+            <div style={{ width: 160 }}><label>Currency (days)</label><input type="number" value={f.currency_days} onChange={(e) => setF({ ...f, currency_days: e.target.value })} placeholder="180" /></div>
+            <span className="muted small" style={{ flex: 1 }}>Optional — pilot's currency expires N days after qualified.</span>
+          </div>
         </form>
       )}
+    </section>
+  );
+}
+
+function Currency({ wingId }) {
+  const [list, setList] = useState([]);
+  useEffect(() => { api.get(`/api/wings/${wingId}/currency`).then(setList); }, [wingId]);
+  const flagged = (list || []).filter((r) => r.status !== 'current');
+  if (!flagged.length) return null;
+  return (
+    <section>
+      <div className="between"><h2>Currency</h2><span className="muted small">{flagged.length} expiring / expired</span></div>
+      <div className="card">
+        {flagged.map((r, i) => (
+          <div key={i} className={`cur-row ${r.status}`}>
+            <span className="pilot">{r.callsign}{r.modex && <span className="muted small"> ({r.modex})</span>}</span>
+            <span className="qual">{r.code} — {r.qual_name}</span>
+            <span className="days">{r.status === 'expired' ? `Expired ${Math.abs(r.days_remaining)}d ago` : `${r.days_remaining}d left`}</span>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

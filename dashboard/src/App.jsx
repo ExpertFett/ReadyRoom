@@ -8,6 +8,7 @@ import Squadron from './pages/Squadron.jsx';
 import MemberDetail from './pages/MemberDetail.jsx';
 import Missions from './pages/Missions.jsx';
 import MissionDetail from './pages/MissionDetail.jsx';
+import TrainingBoard from './pages/TrainingBoard.jsx';
 
 const MeContext = createContext(null);
 export const useMe = () => useContext(MeContext);
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="/missions/:id" element={<MissionDetail />} />
           <Route path="/squadrons/:id" element={<Squadron />} />
           <Route path="/members/:id" element={<MemberDetail />} />
+          <Route path="/training/:qualId" element={<TrainingBoard />} />
         </Routes>
       </main>
     </MeContext.Provider>
