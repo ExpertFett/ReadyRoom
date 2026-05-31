@@ -86,6 +86,21 @@ td .callsign { font-weight: 600; }
 .badge.expired { color: var(--danger); border-color: var(--danger); }
 .badge.admin { color: var(--danger); border-color: var(--danger); }
 .badge.commander { color: var(--accent); border-color: var(--accent); }
+.badge.cap { color: var(--accent); border-color: rgba(76,139,245,0.5); background: rgba(76,139,245,0.08); font-size: 10px; padding: 1px 5px; }
+
+/* --- top-bar role pills + persistent app footer --- */
+.topbar .role-pills { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; max-width: 320px; justify-content: flex-end; margin-right: 8px; }
+.app-footer { border-top: 1px solid var(--border); margin-top: 36px; padding: 14px 24px; background: rgba(0,0,0,0.18); }
+.app-footer-inner { max-width: 1200px; margin: 0 auto; display: flex; gap: 18px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.app-footer-inner a { color: var(--accent); text-decoration: none; }
+.app-footer-inner a:hover { text-decoration: underline; }
+
+/* --- Dashboard KPI tiles --- */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 14px 0 18px; }
+.kpi-tile { background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 14px 16px; border-radius: 6px; }
+.kpi-value { font-size: 28px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+.kpi-label { font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg); }
+.kpi-sub { font-size: 11px; margin-top: 2px; }
 
 button, .btn {
   font: inherit; cursor: pointer; border-radius: 8px; padding: 8px 14px;

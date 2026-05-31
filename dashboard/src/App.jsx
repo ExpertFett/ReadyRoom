@@ -14,7 +14,11 @@ import EventDetail from './pages/EventDetail.jsx';
 import Metrics from './pages/Metrics.jsx';
 import Carriers from './pages/Carriers.jsx';
 import CarrierDetail from './pages/CarrierDetail.jsx';
+import MyQuals from './pages/MyQuals.jsx';
+import CurrencyStatus from './pages/CurrencyStatus.jsx';
 import { DiscordButton } from './components/DiscordButton.jsx';
+import { AppFooter } from './components/AppFooter.jsx';
+import { VERSION } from './version.js';
 
 const MeContext = createContext(null);
 export const useMe = () => useContext(MeContext);
@@ -48,6 +52,11 @@ export default function App() {
   }
   if (!me) return <><Landing /><DiscordButton /></>;
 
+  // Role + capability badges shown in the top bar so the user always sees
+  // which hats they're wearing. ADMIN/COMMANDER come from app_role; LSO/JTAC/
+  // etc. come from the comma-separated capabilities field on their member.
+  const caps = (me.member?.capabilities || '').split(',').map((c) => c.trim()).filter(Boolean);
+
   const activeWing = wings[0] || null;
   const logout = async () => {
     await api.post('/auth/logout');
@@ -65,12 +74,18 @@ export default function App() {
             <NavLink to="/events">Events</NavLink>
             <NavLink to="/missions">Missions</NavLink>
             <NavLink to="/carriers">Carriers</NavLink>
+            <NavLink to="/my-quals">My Quals</NavLink>
+            <NavLink to="/currency">Currency</NavLink>
             <NavLink to="/metrics">Metrics</NavLink>
             <NavLink to="/wing">Wing</NavLink>
           </nav>
         )}
         <span className="spacer" />
-        {me.isAdmin && <span className="badge admin">ADMIN</span>}
+        <div className="role-pills">
+          {me.isAdmin && <span className="badge admin">ADMIN</span>}
+          {me.role === 'commander' && !me.isAdmin && <span className="badge commander">CO</span>}
+          {caps.map((c) => <span key={c} className="badge cap">{c}</span>)}
+        </div>
         <span className="who">{me.user.username}</span>
         <button className="small" onClick={logout}>Log Out</button>
       </header>
@@ -88,8 +103,11 @@ export default function App() {
           <Route path="/metrics" element={<Metrics />} />
           <Route path="/carriers" element={<Carriers />} />
           <Route path="/carriers/:id" element={<CarrierDetail />} />
+          <Route path="/my-quals" element={<MyQuals />} />
+          <Route path="/currency" element={<CurrencyStatus />} />
         </Routes>
       </main>
+      <AppFooter me={me} version={VERSION} />
       <DiscordButton />
     </MeContext.Provider>
   );

@@ -9,9 +9,12 @@ const fmt = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: 'medium',
 export default function Dashboard() {
   const { me, activeWing } = useMe();
   const [data, setData] = useState(null);
+  const [stats, setStats] = useState(null);
 
   useEffect(() => {
-    if (activeWing) api.get(`/api/dashboard?wing_id=${activeWing.id}`).then(setData);
+    if (!activeWing) return;
+    api.get(`/api/dashboard?wing_id=${activeWing.id}`).then(setData);
+    api.get(`/api/wings/${activeWing.id}/dashboard-stats`).then(setStats).catch(() => setStats(null));
   }, [activeWing]);
 
   if (!activeWing) {
@@ -35,6 +38,8 @@ export default function Dashboard() {
       </div>
 
       <SetupCard wingId={activeWing.id} isAdmin={me.isAdmin} />
+
+      <KPITiles stats={stats} />
 
       <div className="row" style={{ alignItems: 'flex-start', marginTop: 8 }}>
         <section className="card" style={{ flex: '1 1 360px' }}>
@@ -81,6 +86,44 @@ export default function Dashboard() {
       <LOAPanel wing={activeWing} me={me} />
     </div>
   );
+}
+
+// Six "how's the wing today" tiles, color-coded by domain. Tiles render even
+// when stats haven't loaded yet (skeleton dashes) so the layout doesn't jump.
+function KPITiles({ stats }) {
+  const tiles = [
+    { label: 'Active Pilots',  value: stats?.active_pilots,        sub: stats?.total_pilots != null ? `of ${stats.total_pilots} total` : null, accent: '#4c8bf5' },
+    { label: '90d Attendance', value: pct(stats?.attendance_90d),  sub: stats?.attendance_90d != null ? 'last 90 days' : 'no events yet', accent: scaleAttend(stats?.attendance_90d) },
+    { label: 'Flight Hours',   value: stats?.flight_hours_90d,     sub: 'last 90 days · from sortie hook', accent: '#8a63ff' },
+    { label: 'Quals Current',  value: stats?.quals_current,        sub: 'qualifications held', accent: '#4cd964' },
+    { label: 'Expiring Soon',  value: stats?.quals_expiring_30d,   sub: 'in the next 30 days', accent: stats?.quals_expiring_30d > 0 ? '#ffcc00' : '#666' },
+    { label: 'Boarding Rate',  value: pct(stats?.boarding_rate),   sub: stats?.boarding_rate != null ? 'wing average · all-time' : 'no traps logged', accent: scaleBoarding(stats?.boarding_rate) },
+  ];
+  return (
+    <div className="kpi-grid">
+      {tiles.map((t) => (
+        <div key={t.label} className="kpi-tile" style={{ borderTop: `3px solid ${t.accent}` }}>
+          <div className="kpi-value" style={{ color: t.accent }}>{t.value ?? '—'}</div>
+          <div className="kpi-label">{t.label}</div>
+          {t.sub && <div className="kpi-sub muted">{t.sub}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function pct(v) { return v == null ? null : `${Math.round(v * 100)}%`; }
+function scaleAttend(r) {
+  if (r == null) return '#666';
+  if (r >= 0.75) return '#4cd964';
+  if (r >= 0.5) return '#ffcc00';
+  return '#ff6464';
+}
+function scaleBoarding(r) {
+  if (r == null) return '#666';
+  if (r >= 0.7) return '#4cd964';
+  if (r >= 0.5) return '#ffcc00';
+  return '#ff6464';
 }
 
 function LOAPanel({ wing, me }) {

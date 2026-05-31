@@ -70,12 +70,24 @@ export default function Calendar() {
               <div className="cal-date">{d.getDate()}</div>
               {list.map((e) => (
                 <Link key={e.id} to={`/events/${e.id}`} className={`cal-evt ${e.kind}`} title={e.title}>
-                  {e.kind === 'extra_credit' ? '★ ' : ''}{e.title}
+                  {e.kind === 'extra_credit' ? '★ ' : ''}
+                  {e.discord_message_id && <span title="Posted to Discord" style={{ marginRight: 2 }}>📌</span>}
+                  {e.title}
                 </Link>
               ))}
             </div>
           );
         })}
+      </div>
+
+      <div className="row small muted" style={{ marginTop: 12, gap: 18, flexWrap: 'wrap' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span className="cal-evt squadron" style={{ display: 'inline-block', width: 14, height: 10, padding: 0, margin: 0 }} /> Squadron event
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span className="cal-evt extra_credit" style={{ display: 'inline-block', width: 14, height: 10, padding: 0, margin: 0 }} /> ★ Extra credit
+        </span>
+        <span>📌 Posted to Discord</span>
       </div>
     </div>
   );
@@ -98,7 +110,15 @@ function CreateEvent({ wing, onDone }) {
       <h3 style={{ marginTop: 0 }}>Create event</h3>
       <div className="form-grid">
         <div className="field"><label>Title *</label><input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="SEAD Training" /></div>
-        <div className="field"><label>Date &amp; time *</label><input type="datetime-local" value={f.start_at} onChange={(e) => setF({ ...f, start_at: e.target.value })} /></div>
+        <div className="field"><label>Date &amp; time *</label>
+          <input type="datetime-local" value={f.start_at} onChange={(e) => setF({ ...f, start_at: e.target.value })} />
+          {f.start_at && (
+            <span className="small" style={{ color: 'var(--accent-2, #4cd964)', marginTop: 4, display: 'block' }}>
+              {new Date(f.start_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              <span className="muted"> · local time</span>
+            </span>
+          )}
+        </div>
         <div className="field"><label>Kind</label>
           <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
             <option value="squadron">Squadron event</option>

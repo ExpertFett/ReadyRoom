@@ -1,4 +1,5 @@
 import { Router, raw } from 'express';
+import db from '../db/index.js';
 import {
   createWing, getWings, getWing, updateWing, deleteWing,
   getWingIngestToken, regenerateWingIngestToken, setWingOpsBot,
@@ -666,6 +667,70 @@ export function apiRouter() {
     const wingId = Number(req.query.wing_id);
     if (!wingId) return res.status(400).json({ error: 'missing_wing_id' });
     res.json(getDashboard(wingId, getActor(req).member?.id || null));
+  });
+
+  // KPI tiles shown above the fold on the Dashboard. Six numbers that tell an
+  // admin "how's the wing today" at a glance.
+  router.get('/wings/:id/dashboard-stats', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const now = Date.now();
+    const day = 86_400_000;
+    const ninetyDaysAgo = now - 90 * day;
+    const thirtyDaysAhead = now + 30 * day;
+
+    // 1. Active pilots (status = 'active' only)
+    const members = getMembersByWing(wing.id);
+    const activePilots = members.filter((m) => m.status === 'active').length;
+
+    // 2. Currently-held qualifications (status = 'qualified' across all members)
+    const qualsCurrentRow = db.prepare(`
+      SELECT COUNT(*) AS n FROM member_quals mq
+      JOIN members m ON m.id = mq.member_id
+      WHERE m.wing_id = ? AND mq.status = 'qualified'
+    `).get(wing.id);
+
+    // 3. Qualifications expiring in the next 30 days (still qualified, but not for long)
+    const qualsExpiringRow = db.prepare(`
+      SELECT COUNT(*) AS n FROM member_quals mq
+      JOIN members m ON m.id = mq.member_id
+      WHERE m.wing_id = ? AND mq.status = 'qualified'
+        AND mq.expires_at IS NOT NULL
+        AND mq.expires_at <= ? AND mq.expires_at >= ?
+    `).get(wing.id, thirtyDaysAhead, now);
+
+    // 4. 90-day attendance rate — reuse the metrics aggregator.
+    // getAttendanceMetrics returns rate as a percentage (e.g. 75 = 75%); the
+    // KPI tile formatter expects a 0-1 fraction like boarding_rate. Convert.
+    const attendance = getAttendanceMetrics(wing.id, ninetyDaysAgo, now);
+    const attendance90d = attendance?.attendance_rate != null
+      ? +(attendance.attendance_rate / 100).toFixed(2)
+      : null;
+
+    // 5. Flight hours (90d) — sum sortie seconds for this wing in the last 90d
+    const hoursRow = db.prepare(`
+      SELECT COALESCE(SUM(seconds), 0) AS s FROM sorties
+      WHERE wing_id = ? AND created_at >= ?
+    `).get(wing.id, ninetyDaysAgo);
+    const flightHours90d = Math.round((hoursRow.s || 0) / 3600 * 10) / 10;
+
+    // 6. Wing boarding rate — average across pilots with at least one trap.
+    //    Reuse getWingGreenieBoard which already computes per-pilot boarding rate.
+    const board = getWingGreenieBoard(wing.id);
+    const withRate = board.filter((b) => b.boarding_rate != null);
+    const boardingRate = withRate.length
+      ? +(withRate.reduce((a, b) => a + b.boarding_rate, 0) / withRate.length).toFixed(2)
+      : null;
+
+    res.json({
+      active_pilots: activePilots,
+      quals_current: qualsCurrentRow.n,
+      quals_expiring_30d: qualsExpiringRow.n,
+      attendance_90d: attendance90d,
+      flight_hours_90d: flightHours90d,
+      boarding_rate: boardingRate,
+      total_pilots: members.length,
+    });
   });
 
   // =====================================================================
