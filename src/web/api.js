@@ -829,6 +829,30 @@ export function apiRouter() {
     res.json(getPilotPerformance(wing.id, from, to));
   });
 
+  // ----- onboarding / setup walkthrough -----
+  router.get('/wings/:id/setup-status', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const squadronCount = getSquadrons(wing.id).length;
+    const qualCount = getQuals(wing.id).length;
+    const memberCount = getMembersByWing(wing.id).length;
+    const carrierCount = getCarriers(wing.id).length;
+    // sortie hook is "alive" once any sortie has landed for this wing
+    const sortieCount = getRecentSorties(wing.id, 1).length;
+    const discordWired = !!(wing.ops_bot_url && wing.ops_bot_token);
+    const steps = {
+      squadrons:  { done: squadronCount >= 1, count: squadronCount },
+      quals:      { done: qualCount >= 1,     count: qualCount },
+      roster:     { done: memberCount >= 3,   count: memberCount },
+      dcs_hook:   { done: sortieCount >= 1,   count: sortieCount },
+      discord:    { done: discordWired,       count: discordWired ? 1 : 0 },
+      carrier:    { done: carrierCount >= 1,  count: carrierCount, optional: true },
+    };
+    const required = ['squadrons', 'quals', 'roster', 'dcs_hook', 'discord'];
+    const done = required.filter((k) => steps[k].done).length;
+    res.json({ wing_id: wing.id, steps, complete: done, total: required.length });
+  });
+
   // ----- carriers / LSO (Epic 6) -----
   router.get('/wings/:id/carriers', (req, res) => {
     const wing = getWing(Number(req.params.id));

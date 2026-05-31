@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
+import SetupCard from '../components/SetupCard.jsx';
 
 const fmt = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'TBD');
 
@@ -32,6 +33,8 @@ export default function Dashboard() {
           <p className="muted">{activeWing.tag ? `${activeWing.tag} — ` : ''}{activeWing.name}</p>
         </div>
       </div>
+
+      <SetupCard wingId={activeWing.id} isAdmin={me.isAdmin} />
 
       <div className="row" style={{ alignItems: 'flex-start', marginTop: 8 }}>
         <section className="card" style={{ flex: '1 1 360px' }}>
