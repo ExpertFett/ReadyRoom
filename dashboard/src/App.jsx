@@ -14,6 +14,7 @@ import EventDetail from './pages/EventDetail.jsx';
 import Metrics from './pages/Metrics.jsx';
 import Carriers from './pages/Carriers.jsx';
 import CarrierDetail from './pages/CarrierDetail.jsx';
+import { DiscordButton } from './components/DiscordButton.jsx';
 
 const MeContext = createContext(null);
 export const useMe = () => useContext(MeContext);
@@ -45,7 +46,7 @@ export default function App() {
   if (me === undefined) {
     return <div className="login-wrap"><div className="muted">Loading…</div></div>;
   }
-  if (!me) return <Landing />;
+  if (!me) return <><Landing /><DiscordButton /></>;
 
   const activeWing = wings[0] || null;
   const logout = async () => {
@@ -89,6 +90,7 @@ export default function App() {
           <Route path="/carriers/:id" element={<CarrierDetail />} />
         </Routes>
       </main>
+      <DiscordButton />
     </MeContext.Provider>
   );
 }
