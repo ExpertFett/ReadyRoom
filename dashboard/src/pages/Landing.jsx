@@ -30,9 +30,9 @@ export default function Landing() {
           Built for groups, squadrons, and wings.
         </p>
         <div className="landing-cta">
-          <a className="btn-discord" href="/auth/login"><DiscordMark /> Sign in with Discord</a>
+          <a className="btn-discord" href="/auth/login"><DiscordMark /> Log In with Discord</a>
         </div>
-        {error && <p className="error" style={{ marginTop: 14 }}>Sign-in failed ({error}). Try again.</p>}
+        {error && <p className="error" style={{ marginTop: 14 }}>Log-in failed ({error}). Try again.</p>}
         <p className="landing-fine">
           Identity only — no email, nothing posted. <a href="/auth/dev-login">Dev login</a> (local only)
         </p>

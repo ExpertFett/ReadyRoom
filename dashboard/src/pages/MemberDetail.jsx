@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
+import { GradePill } from './Carriers.jsx';
 
 const STATUS = ['active', 'reserve', 'loa', 'retired'];
 const QUAL_STATUS = ['qualified', 'training', 'expired'];
+export const CAPABILITIES = ['JTAC', 'GM', 'ATC', 'LSO', 'IP', 'AWACS', 'FAC'];
 
 export default function MemberDetail() {
   const { id } = useParams();
@@ -12,11 +14,13 @@ export default function MemberDetail() {
   const navigate = useNavigate();
   const [m, setM] = useState(null);
   const [quals, setQuals] = useState([]);
+  const [trapData, setTrapData] = useState(null);
 
   const load = async () => {
     const member = await api.get(`/api/members/${id}`);
     setM(member);
     setQuals(await api.get(`/api/quals?wing_id=${member.wing_id}`));
+    api.get(`/api/members/${id}/traps`).then(setTrapData).catch(() => setTrapData(null));
   };
   useEffect(() => { load(); }, [id]);
 
@@ -37,6 +41,9 @@ export default function MemberDetail() {
       <div className="between">
         <h1>{m.callsign || m.name || `Member #${m.id}`}
           {m.app_role !== 'member' && <span className={`badge ${m.app_role}`} style={{ marginLeft: 8 }}>{m.app_role}</span>}
+          {(m.capabilities || '').split(',').filter(Boolean).map((c) => (
+            <span key={c} className="badge cap" style={{ marginLeft: 6, background: 'var(--accent-soft)', color: 'var(--accent)' }}>{c}</span>
+          ))}
         </h1>
         {me.isAdmin && <button className="danger small" onClick={del}>Delete</button>}
       </div>
@@ -51,8 +58,41 @@ export default function MemberDetail() {
         </div>
       </div>
 
+      <TrapsSection data={trapData} />
       <Sorties sorties={m.sorties} />
     </div>
+  );
+}
+
+function TrapsSection({ data }) {
+  if (!data || !data.traps?.length) return null;
+  const { stats, traps } = data;
+  return (
+    <section>
+      <h2>Traps <span className="muted small">({stats.total} total · {stats.boardings}/{stats.attempts} boarded)</span></h2>
+      <div className="row" style={{ marginBottom: 10, gap: 16 }}>
+        <span><b>Avg score:</b> {stats.avg_score ?? '—'}</span>
+        <span><b>%-trap:</b> {stats.boarding_rate != null ? `${Math.round(stats.boarding_rate * 100)}%` : '—'}</span>
+        <span><b>Last 10:</b> {stats.last_grades.map((g, i) => <GradePill key={i} g={g} />)}</span>
+      </div>
+      <div className="card" style={{ padding: 0 }}>
+        <table>
+          <thead><tr><th>Time</th><th>Carrier</th><th>Grade</th><th>Wire</th><th>A/C</th><th>Comments</th></tr></thead>
+          <tbody>
+            {traps.map((t) => (
+              <tr key={t.id}>
+                <td className="small mono">{new Date(t.time_at).toLocaleString()}</td>
+                <td className="small">{t.carrier_name} <span className="muted">{t.hull}</span></td>
+                <td><GradePill g={t.grade} /></td>
+                <td className="small mono">{t.wire ?? '—'}</td>
+                <td className="small">{t.airframe || '—'}</td>
+                <td className="small muted">{t.comments ? t.comments.slice(0, 80) : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -97,9 +137,37 @@ function Profile({ m, canEdit, isAdmin, onSaved }) {
             <select value={f.app_role} onChange={set('app_role')}>{['member', 'commander', 'admin'].map((s) => <option key={s}>{s}</option>)}</select></div>}
           {isAdmin && <div className="field"><label>Discord user ID</label><input value={f.discord_user_id || ''} onChange={set('discord_user_id')} placeholder="link a Discord account" /></div>}
         </div>
+        {isAdmin && <CapabilitiesField value={f.capabilities || ''} onChange={(v) => setF({ ...f, capabilities: v })} />}
         <button className="primary" disabled={busy}>Save</button>
       </form>
     </section>
+  );
+}
+
+function CapabilitiesField({ value, onChange }) {
+  const set = new Set(String(value || '').split(',').map((t) => t.trim()).filter(Boolean));
+  const toggle = (t) => {
+    if (set.has(t)) set.delete(t); else set.add(t);
+    onChange([...set].join(','));
+  };
+  return (
+    <div className="field">
+      <label>Capabilities <span className="muted small">(JTAC / GM / ATC / LSO / IP / AWACS / FAC)</span></label>
+      <div className="chip-row">
+        {CAPABILITIES.map((c) => {
+          const on = set.has(c);
+          return (
+            <button type="button" key={c} className={on ? 'chip on' : 'chip'} onClick={() => toggle(c)}
+              style={{
+                cursor: 'pointer',
+                background: on ? 'var(--accent)' : 'transparent',
+                color: on ? '#000' : 'var(--fg)',
+                border: '1px solid var(--accent)',
+              }}>{c}</button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

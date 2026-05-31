@@ -90,7 +90,10 @@ function MemberRow({ m, extra }) {
     <tr>
       <td className="small muted">{m.modex || '—'}</td>
       <td><Link to={`/members/${m.id}`} className="callsign">{m.callsign || '—'}</Link>
-        {m.app_role && m.app_role !== 'member' && <span className={`badge ${m.app_role}`} style={{ marginLeft: 6 }}>{m.app_role}</span>}</td>
+        {m.app_role && m.app_role !== 'member' && <span className={`badge ${m.app_role}`} style={{ marginLeft: 6 }}>{m.app_role}</span>}
+        {(m.capabilities || '').split(',').filter(Boolean).map((c) => (
+          <span key={c} className="badge cap" style={{ marginLeft: 4, fontSize: 10, padding: '1px 5px', background: 'var(--accent-soft, rgba(76,139,245,0.15))', color: 'var(--accent, #4c8bf5)' }}>{c}</span>
+        ))}</td>
       <td>{m.name || '—'}</td>
       <td className="small">{m.rank || '—'}</td>
       {extra}
@@ -213,25 +216,71 @@ function AttachPilot({ sqn, onDone }) {
 
 function ImportCsv({ sqn, onDone }) {
   const [csv, setCsv] = useState(
-    'callsign,name,rank,billet,modex,subdivision,airframes,notes\n' +
-    'Maverick,Pete Mitchell,LT,Pilot,400,main,F-14B,\n' +
-    'Goose,Nick Bradshaw,LTJG,RIO,401,main,F-14B,\n' +
-    'Iceman,Tom Kazansky,LT,Pilot,420,ready_reserve,F-14B,\n'
+    'callsign,name,rank,billet,modex,subdivision,airframes,capabilities,discord_user_id,notes\n' +
+    'Maverick,Pete Mitchell,LT,Pilot,400,main,F-14B,,, \n' +
+    'Goose,Nick Bradshaw,LTJG,RIO,401,main,F-14B,,,\n' +
+    'Iceman,Tom Kazansky,LT,Pilot,420,ready_reserve,F-14B,LSO,,\n'
   );
   const [result, setResult] = useState(null);
-  const submit = async (e) => {
-    e.preventDefault();
-    setResult(await api.post(`/api/squadrons/${sqn.id}/import-roster`, { csv }));
+  const [busy, setBusy] = useState(false);
+
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = () => setCsv(String(r.result || ''));
+    r.readAsText(file);
   };
+
+  const run = async (dry) => {
+    setBusy(true);
+    try {
+      const r = await api.post(`/api/squadrons/${sqn.id}/import-roster${dry ? '?dry=1' : ''}`, { csv });
+      setResult(r);
+    } finally { setBusy(false); }
+  };
+
   return (
-    <form className="card" onSubmit={submit} style={{ marginTop: 14 }}>
-      <label>Paste CSV — header row required. Columns: callsign, name, rank, billet, modex, subdivision, airframes, notes, discord_user_id</label>
-      <textarea rows={6} value={csv} onChange={(e) => setCsv(e.target.value)} style={{ fontFamily: 'monospace' }} />
+    <div className="card" style={{ marginTop: 14 }}>
+      <h3 style={{ marginTop: 0 }}>Import roster</h3>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        Header row required. Columns (any subset): callsign, name, rank, billet, modex,
+        subdivision, airframes, capabilities, discord_user_id, notes.
+        Existing pilots are matched by Discord ID (preferred) or callsign+name and
+        updated in place — re-uploading is safe.
+      </p>
+      <div className="row" style={{ marginBottom: 10 }}>
+        <input type="file" accept=".csv,text/csv" onChange={onFile} />
+      </div>
+      <textarea rows={8} value={csv} onChange={(e) => setCsv(e.target.value)} style={{ fontFamily: 'monospace', width: '100%' }} />
       <div className="row" style={{ marginTop: 10, alignItems: 'center' }}>
-        <button className="primary">Import</button>
-        {result && <span className="muted small">Imported {result.imported} of {result.total} rows.</span>}
+        <button type="button" className="small" disabled={busy} onClick={() => run(true)}>Dry-run preview</button>
+        <button type="button" className="primary" disabled={busy} onClick={() => run(false)}>Import for real</button>
         {result && <button type="button" className="small" onClick={onDone}>Done</button>}
       </div>
-    </form>
+      {result && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <p className="small" style={{ marginTop: 0 }}>
+            <b>{result.dry ? 'Preview' : 'Imported'}:</b> {result.created} new, {result.updated} updated,
+            {' '}{result.skipped} skipped ({result.total} rows).
+          </p>
+          {result.preview?.length > 0 && (
+            <table>
+              <thead><tr><th>Action</th><th>Callsign</th><th>Name</th><th>Modex</th><th>Caps</th></tr></thead>
+              <tbody>
+                {result.preview.map((p, i) => (
+                  <tr key={i}>
+                    <td><span className={`badge ${p.action === 'create' ? 'qualified' : 'training'}`}>{p.action}</span></td>
+                    <td>{p.callsign || '—'}</td><td className="small">{p.name || '—'}</td>
+                    <td className="small muted">{p.modex || '—'}</td>
+                    <td className="small">{p.capabilities || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

@@ -124,6 +124,11 @@ ensureColumn('quals', 'tier_label', 'TEXT');                           // tier g
 ensureColumn('wings', 'ops_bot_url', 'TEXT');     // base URL of the Ops Bot (e.g. https://dcsoptbot-production-0c4b.up.railway.app)
 ensureColumn('wings', 'ops_bot_token', 'TEXT');   // per-guild outbound token revealed by the Ops Bot dashboard
 
+// --- Epic 7: access levels (capability tags) ---
+// Comma-separated tags. Standard set: JTAC, GM, ATC, LSO, IP, AWACS, FAC.
+// Independent of app_role (member|commander|admin) which is the auth tier.
+ensureColumn('members', 'capabilities', 'TEXT');
+
 const safeParse = (s, fallback) => {
   try {
     return s ? JSON.parse(s) : fallback;
@@ -256,10 +261,10 @@ export function deleteSquadron(id) {
 // Members
 // ---------------------------------------------------------------------------
 const MEMBER_FIELDS =
-  'wing_id, squadron_id, discord_user_id, callsign, name, rank, billet, airframes, status, app_role, notes, joined_at, modex, subdivision';
+  'wing_id, squadron_id, discord_user_id, callsign, name, rank, billet, airframes, status, app_role, notes, joined_at, modex, subdivision, capabilities';
 const insertMember = db.prepare(`
   INSERT INTO members (${MEMBER_FIELDS}, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectMember = db.prepare('SELECT * FROM members WHERE id = ?');
 const selectMembersByWing = db.prepare(
@@ -274,7 +279,7 @@ const selectMemberByDiscord = db.prepare(
 const updateMemberStmt = db.prepare(`
   UPDATE members SET squadron_id = ?, discord_user_id = ?, callsign = ?, name = ?,
     rank = ?, billet = ?, airframes = ?, status = ?, app_role = ?, notes = ?,
-    joined_at = ?, modex = ?, subdivision = ?, updated_at = ?
+    joined_at = ?, modex = ?, subdivision = ?, capabilities = ?, updated_at = ?
   WHERE id = ?
 `);
 const deleteMemberStmt = db.prepare('DELETE FROM members WHERE id = ?');
@@ -293,14 +298,26 @@ const normMember = (d) => ({
   joined_at: Number.isFinite(d.joined_at) ? d.joined_at : null,
   modex: d.modex != null && String(d.modex) !== '' ? String(d.modex).slice(0, 12) : null,
   subdivision: ['main', 'ready_reserve', 'candidate', 'frs'].includes(d.subdivision) ? d.subdivision : 'main',
+  capabilities: normCapabilities(d.capabilities),
 });
+
+// Accepts a CSV string, an array of strings, or null. Returns CSV (or null).
+// Caps each tag at 16 chars, max 8 tags. Tags are uppercased and trimmed.
+function normCapabilities(v) {
+  if (v == null || v === '') return null;
+  const list = Array.isArray(v) ? v : String(v).split(',');
+  const tags = list.map((t) => String(t).trim().toUpperCase().slice(0, 16)).filter(Boolean);
+  const dedup = [...new Set(tags)].slice(0, 8);
+  return dedup.length ? dedup.join(',') : null;
+}
 
 export function createMember(wingId, d) {
   const m = normMember(d);
   const now = Date.now();
   const info = insertMember.run(
     wingId, m.squadron_id, m.discord_user_id, m.callsign, m.name, m.rank, m.billet,
-    m.airframes, m.status, m.app_role, m.notes, m.joined_at, m.modex, m.subdivision, now, now
+    m.airframes, m.status, m.app_role, m.notes, m.joined_at, m.modex, m.subdivision,
+    m.capabilities, now, now
   );
   return getMember(Number(info.lastInsertRowid));
 }
@@ -321,7 +338,8 @@ export function updateMember(id, d) {
   const m = normMember(d);
   updateMemberStmt.run(
     m.squadron_id, m.discord_user_id, m.callsign, m.name, m.rank, m.billet,
-    m.airframes, m.status, m.app_role, m.notes, m.joined_at, m.modex, m.subdivision, Date.now(), id
+    m.airframes, m.status, m.app_role, m.notes, m.joined_at, m.modex, m.subdivision,
+    m.capabilities, Date.now(), id
   );
   return getMember(id);
 }

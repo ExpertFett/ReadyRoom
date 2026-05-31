@@ -35,7 +35,13 @@ import {
   createLOA, getLOA, setLOAStatus, deleteLOA, getUpcomingLOAs, getMemberLOAs,
   getAttendanceMetrics, getPilotPerformance, setEventDiscord,
 } from '../db/events.js';
-import { publishEvent as opsbotPublishEvent } from '../services/opsbotBridge.js';
+import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
+import {
+  createCarrier, getCarriers, getCarrier, updateCarrier, deleteCarrier,
+  recordTrap, deleteTrap, getTrap,
+  getTrapsByCarrier, getTrapsByMember, getTrapsByEvent,
+  getMemberBoardingStats, getWingGreenieBoard, TRAP_GRADES,
+} from '../db/carrier.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, getActor } from './auth.js';
 import { parseMizSlots, flightsFromSlots } from '../services/mizParser.js';
@@ -190,26 +196,56 @@ export function apiRouter() {
     res.json({ ok: deleteSquadron(Number(req.params.id)) > 0 });
   });
 
+  // Import a roster from CSV. Headers (lowercased): callsign, name, rank, billet,
+  // modex, airframes, subdivision, discord_user_id, notes, capabilities.
+  // Pass ?dry=1 to preview without writing. Existing rows are MATCHED by:
+  //   1. discord_user_id (if provided), then
+  //   2. callsign + name (case-insensitive) on the same squadron.
+  // Matched rows are UPDATED (fields blank in the CSV are left alone).
   router.post('/squadrons/:id/import-roster', requireAdmin, (req, res) => {
     const sqn = getSquadron(Number(req.params.id));
     if (!sqn) return res.status(404).json({ error: 'not_found' });
     const rows = parseCsv(req.body?.csv || '');
     if (!rows.length) return res.status(400).json({ error: 'empty_csv' });
-    let imported = 0;
+    const dry = req.query.dry === '1' || req.body?.dry;
+    const existing = getMembersBySquadron(sqn.id);
+    const byDiscord = new Map(existing.filter((m) => m.discord_user_id).map((m) => [m.discord_user_id, m]));
+    const byCallsignName = new Map(existing.map((m) => [`${(m.callsign || '').toLowerCase()}|${(m.name || '').toLowerCase()}`, m]));
+    const summary = { created: 0, updated: 0, skipped: 0, preview: [] };
     for (const r of rows) {
-      if (!r.callsign && !r.name) continue;
-      createMember(sqn.wing_id, {
+      if (!r.callsign && !r.name) { summary.skipped++; continue; }
+      const did = cleanId(r.discord_user_id || r.user_id);
+      const key = `${(r.callsign || '').toLowerCase()}|${(r.name || '').toLowerCase()}`;
+      const match = (did && byDiscord.get(did)) || byCallsignName.get(key) || null;
+      const payload = {
         squadron_id: sqn.id,
-        discord_user_id: cleanId(r.discord_user_id || r.user_id),
-        callsign: r.callsign || null, name: r.name || null,
-        rank: r.rank || null, billet: r.billet || null,
-        airframes: r.airframes || sqn.aircraft || null,
-        modex: r.modex || null, subdivision: r.subdivision || 'main',
-        notes: r.notes || null,
-      });
-      imported++;
+        discord_user_id: did,
+        callsign: r.callsign || (match?.callsign ?? null),
+        name: r.name || (match?.name ?? null),
+        rank: r.rank || (match?.rank ?? null),
+        billet: r.billet || (match?.billet ?? null),
+        airframes: r.airframes || (match?.airframes ?? sqn.aircraft ?? null),
+        modex: r.modex || (match?.modex ?? null),
+        subdivision: r.subdivision || (match?.subdivision ?? 'main'),
+        notes: r.notes || (match?.notes ?? null),
+        capabilities: r.capabilities || (match?.capabilities ?? null),
+      };
+      if (match) {
+        if (!dry) updateMember(match.id, { ...match, ...payload });
+        summary.updated++;
+      } else {
+        if (!dry) createMember(sqn.wing_id, payload);
+        summary.created++;
+      }
+      if (summary.preview.length < 50) {
+        summary.preview.push({
+          action: match ? 'update' : 'create',
+          callsign: payload.callsign, name: payload.name, modex: payload.modex,
+          capabilities: payload.capabilities,
+        });
+      }
     }
-    res.json({ ok: true, imported, total: rows.length });
+    res.json({ ok: true, dry, total: rows.length, ...summary });
   });
 
   // ----- detachment cross-attachments -----
@@ -247,6 +283,7 @@ export function apiRouter() {
         modex: str(b.modex, 12), subdivision: b.subdivision,
         status: b.status, app_role: b.app_role, notes: str(b.notes, 4000),
         joined_at: b.joined_at ? new Date(b.joined_at).getTime() : null,
+        capabilities: b.capabilities,
       }));
     } catch (err) {
       res.status(400).json({ error: err.message === 'alias_taken' ? 'alias_taken' : 'create_failed' });
@@ -280,6 +317,7 @@ export function apiRouter() {
           modex: str(b.modex, 12), subdivision: b.subdivision,
           status: b.status, app_role: b.app_role, notes: str(b.notes, 4000),
           joined_at: b.joined_at ? new Date(b.joined_at).getTime() : member.joined_at,
+          capabilities: b.capabilities !== undefined ? b.capabilities : member.capabilities,
         }
       : {
           ...member,
@@ -684,16 +722,32 @@ export function apiRouter() {
     const e = getEvent(Number(req.params.id));
     if (!e) return res.status(404).json({ error: 'not_found' });
     const b = req.body || {};
-    res.json(updateEvent(e.id, {
+    const updated = updateEvent(e.id, {
       squadron_id: b.squadron_id ?? e.squadron_id,
       title: str(b.title, 200) || e.title, description: str(b.description, 8000),
       kind: b.kind ?? e.kind, start_at: ms(b.start_at) ?? e.start_at, end_at: ms(b.end_at),
       multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
-    }));
+    });
+    // Fire-and-forget: edit the Discord embed if we have one wired.
+    const wing = getWing(updated.wing_id);
+    if (wing?.ops_bot_url && wing?.ops_bot_token && updated.discord_message_id) {
+      opsbotEditEvent(wing, updated.discord_message_id, {
+        title: updated.title, description: updated.description, kind: updated.kind,
+        start_at: updated.start_at, url: `${getBaseUrl()}/events/${updated.id}`,
+      });
+    }
+    res.json(updated);
   });
 
   router.delete('/events/:id', requireAdmin, (req, res) => {
-    res.json({ ok: deleteEvent(Number(req.params.id)) > 0 });
+    const e = getEvent(Number(req.params.id));
+    if (!e) return res.json({ ok: false });
+    // Fire-and-forget: nuke the Discord embed before we drop the row.
+    const wing = getWing(e.wing_id);
+    if (wing?.ops_bot_url && wing?.ops_bot_token && e.discord_message_id) {
+      opsbotDeleteEvent(wing, e.discord_message_id);
+    }
+    res.json({ ok: deleteEvent(e.id) > 0 });
   });
 
   // ----- attendance -----
@@ -773,6 +827,67 @@ export function apiRouter() {
     const to = ms(req.query.to);
     if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
     res.json(getPilotPerformance(wing.id, from, to));
+  });
+
+  // ----- carriers / LSO (Epic 6) -----
+  router.get('/wings/:id/carriers', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json(getCarriers(wing.id));
+  });
+  router.post('/wings/:id/carriers', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json(createCarrier(wing.id, req.body || {}));
+  });
+  router.get('/carriers/:id', (req, res) => {
+    const c = getCarrier(Number(req.params.id));
+    if (!c) return res.status(404).json({ error: 'not_found' });
+    res.json({ ...c, recent_traps: getTrapsByCarrier(c.id, 50) });
+  });
+  router.put('/carriers/:id', requireAdmin, (req, res) => {
+    const c = getCarrier(Number(req.params.id));
+    if (!c) return res.status(404).json({ error: 'not_found' });
+    res.json(updateCarrier(c.id, req.body || {}));
+  });
+  router.delete('/carriers/:id', requireAdmin, (req, res) => {
+    res.json({ ok: deleteCarrier(Number(req.params.id)) > 0 });
+  });
+
+  // traps
+  router.post('/carriers/:id/traps', requireAdmin, (req, res) => {
+    const c = getCarrier(Number(req.params.id));
+    if (!c) return res.status(404).json({ error: 'not_found' });
+    try {
+      const trap = recordTrap(c.id, req.body || {}, getActor(req).user?.id || null);
+      res.json(trap);
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'record_failed' });
+    }
+  });
+  router.delete('/traps/:id', requireAdmin, (req, res) => {
+    res.json({ ok: deleteTrap(Number(req.params.id)) > 0 });
+  });
+  router.get('/traps/:id', (req, res) => {
+    const t = getTrap(Number(req.params.id));
+    if (!t) return res.status(404).json({ error: 'not_found' });
+    res.json(t);
+  });
+  router.get('/members/:id/traps', (req, res) => {
+    const member = getMember(Number(req.params.id));
+    if (!member) return res.status(404).json({ error: 'not_found' });
+    res.json({
+      stats: getMemberBoardingStats(member.id),
+      traps: getTrapsByMember(member.id, 50),
+    });
+  });
+  router.get('/events/:id/traps', (req, res) => {
+    res.json(getTrapsByEvent(Number(req.params.id)));
+  });
+  router.get('/wings/:id/greenie-board', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json({ grades_taxonomy: TRAP_GRADES, board: getWingGreenieBoard(wing.id) });
   });
 
   return router;

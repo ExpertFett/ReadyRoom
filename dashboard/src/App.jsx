@@ -12,6 +12,8 @@ import TrainingBoard from './pages/TrainingBoard.jsx';
 import Calendar from './pages/Calendar.jsx';
 import EventDetail from './pages/EventDetail.jsx';
 import Metrics from './pages/Metrics.jsx';
+import Carriers from './pages/Carriers.jsx';
+import CarrierDetail from './pages/CarrierDetail.jsx';
 
 const MeContext = createContext(null);
 export const useMe = () => useContext(MeContext);
@@ -61,6 +63,7 @@ export default function App() {
             <NavLink to="/" end>Dashboard</NavLink>
             <NavLink to="/events">Events</NavLink>
             <NavLink to="/missions">Missions</NavLink>
+            <NavLink to="/carriers">Carriers</NavLink>
             <NavLink to="/metrics">Metrics</NavLink>
             <NavLink to="/wing">Wing</NavLink>
           </nav>
@@ -68,7 +71,7 @@ export default function App() {
         <span className="spacer" />
         {me.isAdmin && <span className="badge admin">ADMIN</span>}
         <span className="who">{me.user.username}</span>
-        <button className="small" onClick={logout}>Sign out</button>
+        <button className="small" onClick={logout}>Log Out</button>
       </header>
       <main className="container">
         <Routes>
@@ -82,6 +85,8 @@ export default function App() {
           <Route path="/events" element={<Calendar />} />
           <Route path="/events/:id" element={<EventDetail />} />
           <Route path="/metrics" element={<Metrics />} />
+          <Route path="/carriers" element={<Carriers />} />
+          <Route path="/carriers/:id" element={<CarrierDetail />} />
         </Routes>
       </main>
     </MeContext.Provider>
