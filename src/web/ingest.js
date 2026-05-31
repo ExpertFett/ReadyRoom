@@ -11,6 +11,14 @@ import { getWingByIngestToken, addSortie } from '../db/index.js';
 export function ingestRouter() {
   const router = Router();
 
+  // GET ingest URL — used by the Ops Bot dashboard's "Test connection" button to
+  // confirm the configured URL+token reaches a real wing without sending data.
+  router.get('/:token', (req, res) => {
+    const wing = getWingByIngestToken(req.params.token);
+    if (!wing) return res.status(401).json({ error: 'bad_token' });
+    res.json({ ok: true, wing: { id: wing.id, name: wing.name, tag: wing.tag || null } });
+  });
+
   router.post('/:token', (req, res) => {
     const wing = getWingByIngestToken(req.params.token);
     if (!wing) return res.status(401).json({ error: 'bad_token' });

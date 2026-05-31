@@ -218,16 +218,53 @@ function SortieFeed({ wingId }) {
   );
 }
 
+// The canonical hosted Ops Bot URL — prefilled so 99% of users only need to
+// paste the outbound token. Self-hosters override the URL field manually.
+const CANONICAL_OPS_BOT_URL = 'https://dcsoptbot-production-0c4b.up.railway.app';
+
 function DiscordPublish({ wing }) {
-  const [f, setF] = useState({ ops_bot_url: wing.ops_bot_url || '', ops_bot_token: wing.ops_bot_token || '' });
+  const [f, setF] = useState({
+    ops_bot_url: wing.ops_bot_url || CANONICAL_OPS_BOT_URL,
+    ops_bot_token: wing.ops_bot_token || '',
+  });
   const [status, setStatus] = useState('');
-  useEffect(() => { setF({ ops_bot_url: wing.ops_bot_url || '', ops_bot_token: wing.ops_bot_token || '' }); }, [wing.id]);
+  const [testing, setTesting] = useState(false);
+  useEffect(() => {
+    setF({
+      ops_bot_url: wing.ops_bot_url || CANONICAL_OPS_BOT_URL,
+      ops_bot_token: wing.ops_bot_token || '',
+    });
+  }, [wing.id]);
+
   const save = async (e) => {
     e.preventDefault();
     setStatus('Saving…');
     try { await api.put(`/api/wings/${wing.id}/ops-bot`, f); setStatus('Saved ✓'); }
     catch (err) { setStatus(`Save failed: ${err.message}`); }
   };
+
+  // Hit Ops Bot's /integrations/readyroom/health endpoint with the bearer token.
+  // Confirms URL+token reach a real guild AND the events channel is set.
+  const test = async () => {
+    setTesting(true); setStatus('Testing…');
+    try {
+      const base = String(f.ops_bot_url || '').replace(/\/+$/, '');
+      const res = await fetch(`${base}/integrations/readyroom/health`, {
+        method: 'GET',
+        headers: { authorization: `Bearer ${f.ops_bot_token}` },
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.ok) {
+        setStatus(`✓ Connected to "${body.guild.name}" → #${body.channel.name}`);
+      } else if (res.status === 401) setStatus('✗ Token rejected. Check the outbound token.');
+      else if (res.status === 409 && body?.error === 'no_events_channel_configured') {
+        setStatus('✗ Events channel not picked on Ops Bot. Set it under DCS Server → ReadyRoom integration → Inbound.');
+      } else setStatus(`✗ ${body?.error || `HTTP ${res.status}`}`);
+    } catch (err) {
+      setStatus(`✗ Could not reach Ops Bot (${err.message}). Check the URL.`);
+    } finally { setTesting(false); }
+  };
+
   const wired = wing.ops_bot_url && wing.ops_bot_token;
   return (
     <section>
@@ -235,17 +272,18 @@ function DiscordPublish({ wing }) {
       <form className="card" onSubmit={save}>
         <p className="muted small" style={{ marginTop: 0 }}>
           When you create an event here, drop a Discord embed in your squadron's events channel via Ops Bot.
-          Get both values from your Ops Bot dashboard → <b>DCS Server → ReadyRoom integration → Inbound</b>.
-          Leave blank to disable.
+          Both fields below are <b>filled in from the Ops Bot dashboard</b> →{' '}
+          <b>DCS Server → ReadyRoom integration → Inbound</b>. Click <b>Test connection</b> after saving to confirm it's wired.
         </p>
-        <div className="field"><label>Ops Bot URL</label>
+        <div className="field"><label>Ops Bot URL <span className="muted small">(prefilled to the official deploy — change only if self-hosting)</span></label>
           <input value={f.ops_bot_url} onChange={(e) => setF({ ...f, ops_bot_url: e.target.value })}
                  placeholder="https://your-opsbot.up.railway.app" /></div>
-        <div className="field"><label>Outbound token <span className="muted small">(treat like a password)</span></label>
+        <div className="field"><label>Outbound token <span className="muted small">(get from Ops Bot → Inbound → Reveal · treat like a password)</span></label>
           <input type="password" value={f.ops_bot_token} onChange={(e) => setF({ ...f, ops_bot_token: e.target.value })}
                  placeholder="(paste from Ops Bot)" /></div>
-        <div className="row" style={{ alignItems: 'center' }}>
+        <div className="row" style={{ alignItems: 'center', gap: 8 }}>
           <button className="small primary">Save</button>
+          <button type="button" className="small" disabled={testing || !f.ops_bot_url || !f.ops_bot_token} onClick={test}>Test connection</button>
           {status && <span className="muted small">{status}</span>}
         </div>
       </form>
