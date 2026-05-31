@@ -6,13 +6,32 @@ const FEATURES = [
   { t: 'Mission ops & sign-ups', b: 'Build missions with flights, callsigns, aircraft and seats. Pilots claim slots; you see the fill.' },
   { t: 'Sortie logbook', b: 'Server telemetry auto-attributes to the right pilot by their in-game name — logbooks fill themselves.' },
   { t: 'Squadron access', b: 'Host a mission and invite other squadrons, or keep it in-house. You control who can sign up.' },
-  { t: 'Better together', b: 'Pairs with VectorBot (Discord) and the Mizmaker planner — but stands completely on its own.' },
+  { t: 'Better together', b: 'Pairs with the DCS:OPT Ops Bot (Discord) and the Mizmaker planner — but stands completely on its own.' },
 ];
 
 const STEPS = [
   { n: '1', t: 'Build your wing', b: 'Add your squadrons, the roster, and your qualifications.' },
   { n: '2', t: 'Plan & sign up', b: 'Spin up a mission, set the flights, let pilots claim slots.' },
   { n: '3', t: 'Fly & track', b: 'Sorties flow in from the server and land in each pilot’s logbook.' },
+];
+
+const INTEGRATIONS = [
+  {
+    t: 'DCS World',
+    b: 'A lightweight in-game hook streams sorties to your wing — pilot name, airframe, flight time. ReadyRoom matches each one to a roster member via claimed pilot aliases, so logbooks fill themselves. Carrier landings log to the LSO board with grade, wire, AOA and ball call.',
+  },
+  {
+    t: 'DCS:OPT Ops Bot (Discord)',
+    b: 'Two-way bridge with your squadron Discord. Create an event in ReadyRoom → an embed lands in your events channel automatically; edit or delete it and the embed updates. Sortie telemetry from the bot mirrors into ReadyRoom in the same beat. Configured self-serve per guild — no Railway access required.',
+  },
+  {
+    t: 'DCS:OPT Mizmaker',
+    b: 'Import a .miz from the Mizmaker planner straight into a ReadyRoom mission. Coalitions, groups and client slots are parsed into ready-made flights — pilots sign up against the actual slots you flew on.',
+  },
+  {
+    t: 'Spreadsheet roster',
+    b: 'Bulk-import your roster from CSV — callsigns, names, ranks, billets, modex, capabilities and Discord IDs. Re-uploads are idempotent: matched pilots are updated in place, new ones are added. Dry-run preview before you commit.',
+  },
 ];
 
 export default function Landing() {
@@ -57,6 +76,29 @@ export default function Landing() {
               <div className="ft-body">{s.b}</div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="landing-how">
+        <h2>INTEGRATIONS</h2>
+        <p className="landing-sub" style={{ marginBottom: 22 }}>
+          ReadyRoom stands on its own — but it gets meaningfully better when paired with the rest of the
+          DCS:OPT family. Everything below is opt-in and configured from inside the app.
+        </p>
+        <div className="landing-grid" style={{ marginTop: 0 }}>
+          {INTEGRATIONS.map((i) => (
+            <div key={i.t} className="landing-feature">
+              <div className="ft-title">{i.t}</div>
+              <div className="ft-body">{i.b}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing-hero" style={{ paddingTop: 24, paddingBottom: 48 }}>
+        <p className="landing-tagline" style={{ marginTop: 0 }}>Ready to run your wing from one place?</p>
+        <div className="landing-cta">
+          <a className="btn-discord" href="/auth/login"><DiscordMark /> Log In with Discord</a>
         </div>
       </section>
 
