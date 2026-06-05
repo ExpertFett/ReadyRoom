@@ -95,6 +95,33 @@ export function signOffActivity(memberId, activityId, { status, signerId, notes 
   const act = selectActivity.get(activityId);
   if (act) tryAutoQualify(memberId, act.qual_id);
 }
+// Bulk sign-off across (activities × members). Mode = 'signed' (default
+// upsert), 'reset' (delete signoffs), or 'instructor' (mark with status
+// 'instructor' which is a richer tier — see ACT_STATUS).
+export function bulkSignOff(activityIds, memberIds, mode = 'signed', signerId = null) {
+  const now = Date.now();
+  let changed = 0;
+  const qualIds = new Set();
+  for (const aid of activityIds) {
+    const act = selectActivity.get(aid);
+    if (act) qualIds.add(act.qual_id);
+    for (const mid of memberIds) {
+      if (mode === 'reset') {
+        changed += deleteSignoffStmt.run(mid, aid).changes;
+      } else {
+        const status = mode === 'instructor' && ACT_STATUS.includes('instructor') ? 'instructor' : 'signed';
+        upsertSignoff.run(mid, aid, status, signerId || null, now, null);
+        changed++;
+      }
+    }
+  }
+  // Roll forward member_quals to 'qualified' wherever every activity is signed.
+  for (const qid of qualIds) {
+    for (const mid of memberIds) tryAutoQualify(mid, qid);
+  }
+  return { changed, mode, activity_count: activityIds.length, member_count: memberIds.length };
+}
+
 export function removeSignoff(memberId, activityId) {
   const r = deleteSignoffStmt.run(memberId, activityId).changes;
   // Note: we don't demote member_quals here — admins can re-qualify manually.

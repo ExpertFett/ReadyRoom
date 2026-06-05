@@ -6,7 +6,7 @@ import {
   createSquadron, getSquadrons, getSquadron, updateSquadron, deleteSquadron,
   createMember, getMember, getMembersByWing, getMembersBySquadron, updateMember, deleteMember,
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
-  createQual, getQuals, getQual, deleteQual,
+  createQual, getQuals, getQual, deleteQual, updateQual, bulkAssignQuals,
   setMemberQual, getMemberQuals, removeMemberQual,
   getRecentSorties, getMemberSorties, getUnmatchedAliases,
 } from '../db/index.js';
@@ -26,7 +26,7 @@ import {
 } from '../db/roster.js';
 import {
   createActivity, getActivities, getActivity, updateActivity, deleteActivity,
-  signOffActivity, removeSignoff,
+  signOffActivity, removeSignoff, bulkSignOff,
   getMemberActivitiesForQual, getMemberQualProgress,
   setQualCadence, getWingCurrency, getTrainingBoard,
 } from '../db/quals.js';
@@ -372,6 +372,9 @@ export function apiRouter() {
       const qual = createQual(wingId, {
         code: str(b.code, 30), name: str(b.name, 120), category: str(b.category, 60),
         description: str(b.description, 2000), sort_order: b.sort_order,
+        is_basic: !!b.is_basic, is_currency: !!b.is_currency,
+        is_wing_wide: b.is_wing_wide === undefined ? true : !!b.is_wing_wide,
+        completion_deadline_days: b.completion_deadline_days,
       });
       if (b.is_tier) {
         setQualTier(qual.id, {
@@ -399,8 +402,64 @@ export function apiRouter() {
     }
   });
 
+  router.put('/quals/:id', requireAdmin, (req, res) => {
+    const q = getQual(Number(req.params.id));
+    if (!q) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    const updated = updateQual(q.id, {
+      code: b.code !== undefined ? str(b.code, 30) : undefined,
+      name: b.name !== undefined ? str(b.name, 120) : undefined,
+      category: b.category !== undefined ? str(b.category, 60) : undefined,
+      description: b.description !== undefined ? str(b.description, 2000) : undefined,
+      sort_order: b.sort_order,
+      is_basic: b.is_basic,
+      is_currency: b.is_currency,
+      is_wing_wide: b.is_wing_wide,
+      completion_deadline_days: b.completion_deadline_days,
+    });
+    // Tier + cadence are stored separately by other helpers — apply them if present.
+    if (b.is_tier !== undefined || b.tier_order !== undefined || b.tier_label !== undefined) {
+      setQualTier(q.id, {
+        is_tier: !!b.is_tier,
+        tier_order: Number(b.tier_order) || 0,
+        tier_label: str(b.tier_label, 20) || updated.code,
+      });
+    }
+    if (b.currency_days !== undefined || b.completion_days !== undefined) {
+      setQualCadence(q.id, {
+        currency_days: b.currency_days !== undefined ? (Number(b.currency_days) || null) : undefined,
+        completion_days: b.completion_days !== undefined ? (Number(b.completion_days) || null) : undefined,
+      });
+    }
+    res.json(getQual(q.id));
+  });
+
   router.delete('/quals/:id', requireAdmin, (req, res) => {
     res.json({ ok: deleteQual(Number(req.params.id)) > 0 });
+  });
+
+  // ----- Phase 2 bulk operations -----
+  router.post('/wings/:id/quals/bulk-assign', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    const qualIds = (Array.isArray(b.qual_ids) ? b.qual_ids : []).map(Number).filter(Boolean);
+    const memberIds = (Array.isArray(b.member_ids) ? b.member_ids : []).map(Number).filter(Boolean);
+    const mode = ['assign', 'unassign', 'instructor'].includes(b.mode) ? b.mode : 'assign';
+    if (!qualIds.length || !memberIds.length) return res.status(400).json({ error: 'missing_ids' });
+    res.json(bulkAssignQuals(qualIds, memberIds, mode));
+  });
+
+  router.post('/quals/:id/bulk-signoff', requireAdmin, (req, res) => {
+    const q = getQual(Number(req.params.id));
+    if (!q) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
+    const activityIds = (Array.isArray(b.activity_ids) ? b.activity_ids : []).map(Number).filter(Boolean);
+    const memberIds = (Array.isArray(b.member_ids) ? b.member_ids : []).map(Number).filter(Boolean);
+    const mode = ['signed', 'reset', 'instructor'].includes(b.mode) ? b.mode : 'signed';
+    if (!activityIds.length || !memberIds.length) return res.status(400).json({ error: 'missing_ids' });
+    const signerId = getActor(req).member?.id || null;
+    res.json(bulkSignOff(activityIds, memberIds, mode, signerId));
   });
 
   router.put('/members/:id/quals/:qualId', requireAdmin, (req, res) => {

@@ -120,6 +120,16 @@ ensureColumn('quals', 'is_tier', 'INTEGER NOT NULL DEFAULT 0');        // counts
 ensureColumn('quals', 'tier_order', 'INTEGER');                        // progression order (lower = earlier)
 ensureColumn('quals', 'tier_label', 'TEXT');                           // tier granted when achieved (e.g. CMQ -> "FMQ")
 
+// --- Phase 2: qual classifier flags + assignment deadline ---
+// is_basic    — auto-assigned to every new pilot on join (e.g. IQT for fresh students)
+// is_currency — has expiration; renews via Currency Status dashboard
+// is_wing_wide — visible across all squadrons (vs. squadron-scoped). Default 1 for backwards compat.
+// completion_deadline_days — N days from assignment to complete; null = no deadline
+ensureColumn('quals', 'is_basic', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('quals', 'is_currency', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('quals', 'is_wing_wide', 'INTEGER NOT NULL DEFAULT 1');
+ensureColumn('quals', 'completion_deadline_days', 'INTEGER');
+
 // --- Epic 5b: Ops Bot publish bridge (Discord event embeds) ---
 ensureColumn('wings', 'ops_bot_url', 'TEXT');     // base URL of the Ops Bot (e.g. https://dcsoptbot-production-0c4b.up.railway.app)
 ensureColumn('wings', 'ops_bot_token', 'TEXT');   // per-guild outbound token revealed by the Ops Bot dashboard
@@ -319,7 +329,28 @@ export function createMember(wingId, d) {
     m.airframes, m.status, m.app_role, m.notes, m.joined_at, m.modex, m.subdivision,
     m.capabilities, now, now
   );
-  return getMember(Number(info.lastInsertRowid));
+  const memberId = Number(info.lastInsertRowid);
+  // Auto-assign any "Basic" quals defined for this wing — those are quals the
+  // wing has flagged as "every new pilot gets this" (typically IQT / NATOPS).
+  // Inserted as status='training' so they show up on the new pilot's My Quals
+  // page with progress = 0/N.
+  try { autoAssignBasicQuals(wingId, memberId, now); } catch (err) {
+    console.warn('[createMember] auto-assign failed:', err.message);
+  }
+  return getMember(memberId);
+}
+
+const selectBasicQualsStmt = db.prepare(
+  'SELECT id FROM quals WHERE wing_id = ? AND is_basic = 1'
+);
+const insertAutoMemberQualStmt = db.prepare(
+  `INSERT OR IGNORE INTO member_quals (member_id, qual_id, status, updated_at)
+   VALUES (?, ?, 'training', ?)`
+);
+function autoAssignBasicQuals(wingId, memberId, now) {
+  for (const q of selectBasicQualsStmt.all(wingId)) {
+    insertAutoMemberQualStmt.run(memberId, q.id, now);
+  }
 }
 export function getMember(id) {
   return selectMember.get(id) || null;
@@ -389,26 +420,58 @@ export function deleteAlias(id) {
 // Qualifications
 // ---------------------------------------------------------------------------
 const insertQual = db.prepare(`
-  INSERT INTO quals (wing_id, code, name, category, description, sort_order, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO quals (wing_id, code, name, category, description, sort_order, created_at,
+    is_basic, is_currency, is_wing_wide, completion_deadline_days)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectQualsByWing = db.prepare(
   'SELECT * FROM quals WHERE wing_id = ? ORDER BY sort_order ASC, code ASC'
 );
 const selectQual = db.prepare('SELECT * FROM quals WHERE id = ?');
 const deleteQualStmt = db.prepare('DELETE FROM quals WHERE id = ?');
+const updateQualStmt = db.prepare(`
+  UPDATE quals SET code = ?, name = ?, category = ?, description = ?, sort_order = ?,
+    is_basic = ?, is_currency = ?, is_wing_wide = ?, completion_deadline_days = ?
+  WHERE id = ?
+`);
 
-export function createQual(wingId, { code, name, category, description, sort_order }) {
+export function createQual(wingId, d) {
   const info = insertQual.run(
     wingId,
-    String(code).trim(),
-    String(name).trim(),
-    category ?? null,
-    description ?? null,
-    Number(sort_order) || 0,
-    Date.now()
+    String(d.code).trim(),
+    String(d.name).trim(),
+    d.category ?? null,
+    d.description ?? null,
+    Number(d.sort_order) || 0,
+    Date.now(),
+    d.is_basic ? 1 : 0,
+    d.is_currency ? 1 : 0,
+    d.is_wing_wide === false ? 0 : 1,
+    Number.isFinite(Number(d.completion_deadline_days)) && Number(d.completion_deadline_days) > 0
+      ? Number(d.completion_deadline_days) : null,
   );
   return selectQual.get(Number(info.lastInsertRowid));
+}
+
+export function updateQual(id, d) {
+  const cur = selectQual.get(id);
+  if (!cur) return null;
+  updateQualStmt.run(
+    d.code !== undefined ? String(d.code).trim() : cur.code,
+    d.name !== undefined ? String(d.name).trim() : cur.name,
+    d.category !== undefined ? d.category : cur.category,
+    d.description !== undefined ? d.description : cur.description,
+    d.sort_order !== undefined ? (Number(d.sort_order) || 0) : cur.sort_order,
+    d.is_basic !== undefined ? (d.is_basic ? 1 : 0) : cur.is_basic,
+    d.is_currency !== undefined ? (d.is_currency ? 1 : 0) : cur.is_currency,
+    d.is_wing_wide !== undefined ? (d.is_wing_wide ? 1 : 0) : cur.is_wing_wide,
+    d.completion_deadline_days !== undefined
+      ? (Number.isFinite(Number(d.completion_deadline_days)) && Number(d.completion_deadline_days) > 0
+          ? Number(d.completion_deadline_days) : null)
+      : cur.completion_deadline_days,
+    id,
+  );
+  return selectQual.get(id);
 }
 export function getQuals(wingId) {
   return selectQualsByWing.all(wingId);
@@ -418,6 +481,50 @@ export function getQual(id) {
 }
 export function deleteQual(id) {
   return deleteQualStmt.run(id).changes;
+}
+
+// --- Phase 2: bulk qualification assignment --------------------------------
+// Modes:
+//   'assign'     — upsert member_quals rows with status='training' (or qualified
+//                  if all activities are signed; we keep it simple here and the
+//                  auto-qualify path handles graduation)
+//   'unassign'   — DELETE the member_qual rows
+//   'instructor' — set status='qualified' AND insert/overwrite a special marker
+//                  in the notes field so the UI can recognize instructor-tier.
+//                  (We don't have a separate "instructor" status enum, so we
+//                  encode it in notes with the prefix '[INSTRUCTOR]'.)
+const insertBulkAssignStmt = db.prepare(
+  `INSERT INTO member_quals (member_id, qual_id, status, updated_at)
+   VALUES (?, ?, 'training', ?)
+   ON CONFLICT(member_id, qual_id) DO NOTHING`
+);
+const upsertInstructorStmt = db.prepare(
+  `INSERT INTO member_quals (member_id, qual_id, status, awarded_at, notes, updated_at)
+   VALUES (?, ?, 'qualified', ?, '[INSTRUCTOR]', ?)
+   ON CONFLICT(member_id, qual_id) DO UPDATE SET
+     status='qualified', notes='[INSTRUCTOR]', updated_at=excluded.updated_at`
+);
+const deleteBulkAssignStmt = db.prepare(
+  'DELETE FROM member_quals WHERE member_id = ? AND qual_id = ?'
+);
+
+export function bulkAssignQuals(qualIds, memberIds, mode = 'assign') {
+  const now = Date.now();
+  let changed = 0;
+  for (const qid of qualIds) {
+    for (const mid of memberIds) {
+      if (mode === 'unassign') {
+        changed += deleteBulkAssignStmt.run(mid, qid).changes;
+      } else if (mode === 'instructor') {
+        upsertInstructorStmt.run(mid, qid, now, now);
+        changed++;
+      } else {
+        insertBulkAssignStmt.run(mid, qid, now);
+        changed++;
+      }
+    }
+  }
+  return { changed, mode, qual_count: qualIds.length, member_count: memberIds.length };
 }
 
 const upsertMemberQual = db.prepare(`

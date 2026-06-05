@@ -16,6 +16,7 @@ import Carriers from './pages/Carriers.jsx';
 import CarrierDetail from './pages/CarrierDetail.jsx';
 import MyQuals from './pages/MyQuals.jsx';
 import CurrencyStatus from './pages/CurrencyStatus.jsx';
+import Qualifications from './pages/Qualifications.jsx';
 import { DiscordButton } from './components/DiscordButton.jsx';
 import { AppFooter } from './components/AppFooter.jsx';
 import { VERSION } from './version.js';
@@ -74,8 +75,7 @@ export default function App() {
             <NavLink to="/events">Events</NavLink>
             <NavLink to="/missions">Missions</NavLink>
             <NavLink to="/carriers">Carriers</NavLink>
-            <NavLink to="/my-quals">My Quals</NavLink>
-            <NavLink to="/currency">Currency</NavLink>
+            <NavLink to="/qualifications">Qualifications</NavLink>
             <NavLink to="/metrics">Metrics</NavLink>
             <NavLink to="/wing">Wing</NavLink>
           </nav>
@@ -103,6 +103,8 @@ export default function App() {
           <Route path="/metrics" element={<Metrics />} />
           <Route path="/carriers" element={<Carriers />} />
           <Route path="/carriers/:id" element={<CarrierDetail />} />
+          <Route path="/qualifications" element={<Qualifications />} />
+          {/* Standalone routes kept for back-compat / direct linking */}
           <Route path="/my-quals" element={<MyQuals />} />
           <Route path="/currency" element={<CurrencyStatus />} />
         </Routes>
