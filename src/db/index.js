@@ -133,6 +133,7 @@ ensureColumn('quals', 'completion_deadline_days', 'INTEGER');
 // --- Epic 5b: Ops Bot publish bridge (Discord event embeds) ---
 ensureColumn('wings', 'ops_bot_url', 'TEXT');     // base URL of the Ops Bot (e.g. https://dcsoptbot-production-0c4b.up.railway.app)
 ensureColumn('wings', 'ops_bot_token', 'TEXT');   // per-guild outbound token revealed by the Ops Bot dashboard
+ensureColumn('wings', 'discord_paused', 'INTEGER NOT NULL DEFAULT 0'); // 1 = skip auto-publish on create/edit/delete
 
 // --- Phase 3.3: multi-crew qualification tracks ---
 // Quals can optionally have crew-position tracks (e.g. F-14B IQT has pilot
@@ -268,6 +269,22 @@ export function setWingOpsBot(id, { ops_bot_url, ops_bot_token }) {
     id
   );
   return getWing(id);
+}
+
+// Discord publish status helpers (Phase 4.4) — pause toggle + last-published event probe.
+const setWingPausedStmt = db.prepare('UPDATE wings SET discord_paused = ? WHERE id = ?');
+export function setWingDiscordPaused(id, paused) {
+  setWingPausedStmt.run(paused ? 1 : 0, id);
+  return getWing(id);
+}
+const selectLastPublishedStmt = db.prepare(`
+  SELECT id, title, start_at, updated_at, discord_message_id, discord_channel_id
+  FROM events
+  WHERE wing_id = ? AND discord_message_id IS NOT NULL
+  ORDER BY updated_at DESC LIMIT 1
+`);
+export function getLastPublishedEvent(wingId) {
+  return selectLastPublishedStmt.get(wingId) || null;
 }
 
 // ---------------------------------------------------------------------------

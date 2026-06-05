@@ -229,17 +229,31 @@ function DiscordPublish({ wing }) {
   });
   const [status, setStatus] = useState('');
   const [testing, setTesting] = useState(false);
+  const [discordStatus, setDiscordStatus] = useState(null);
+
+  const loadStatus = async () => {
+    try { setDiscordStatus(await api.get(`/api/wings/${wing.id}/discord-status`)); }
+    catch { /* ignore */ }
+  };
+
   useEffect(() => {
     setF({
       ops_bot_url: wing.ops_bot_url || CANONICAL_OPS_BOT_URL,
       ops_bot_token: wing.ops_bot_token || '',
     });
+    loadStatus();
   }, [wing.id]);
+
+  const togglePause = async () => {
+    if (!discordStatus) return;
+    await api.put(`/api/wings/${wing.id}/discord-paused`, { paused: !discordStatus.paused });
+    loadStatus();
+  };
 
   const save = async (e) => {
     e.preventDefault();
     setStatus('Saving…');
-    try { await api.put(`/api/wings/${wing.id}/ops-bot`, f); setStatus('Saved ✓'); }
+    try { await api.put(`/api/wings/${wing.id}/ops-bot`, f); setStatus('Saved ✓'); loadStatus(); }
     catch (err) { setStatus(`Save failed: ${err.message}`); }
   };
 
@@ -266,9 +280,38 @@ function DiscordPublish({ wing }) {
   };
 
   const wired = wing.ops_bot_url && wing.ops_bot_token;
+  const paused = discordStatus?.paused;
+  const stateKind = !wired ? 'reserve' : paused ? 'loa' : 'active';
+  const stateLabel = !wired ? 'not configured' : paused ? 'paused' : 'active';
   return (
     <section>
-      <h2>Discord publish <span className={`badge ${wired ? 'active' : 'reserve'}`} style={{ marginLeft: 8, fontSize: 11 }}>{wired ? 'wired' : 'not configured'}</span></h2>
+      <h2>Discord publish <span className={`badge ${stateKind}`} style={{ marginLeft: 8, fontSize: 11 }}>{stateLabel}</span></h2>
+
+      {wired && discordStatus && (
+        <div className="card" style={{ marginBottom: 10, padding: 12 }}>
+          <div className="row" style={{ alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+            <div>
+              <div className="muted small">Status</div>
+              <div style={{ color: paused ? 'var(--warn, #ffcc00)' : 'var(--accent-2, #4cd964)', fontWeight: 600 }}>
+                {paused ? '⏸ Paused' : '● Active'}
+              </div>
+            </div>
+            <div>
+              <div className="muted small">Last published</div>
+              <div>
+                {discordStatus.last_published
+                  ? <>{discordStatus.last_published.title} <span className="muted small">({new Date(discordStatus.last_published.updated_at).toLocaleDateString()})</span></>
+                  : <span className="muted">nothing posted yet</span>}
+              </div>
+            </div>
+            <span style={{ flex: 1 }} />
+            <button type="button" className="small" onClick={togglePause}>
+              {paused ? '▶ Resume publishing' : '⏸ Pause publishing'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <form className="card" onSubmit={save}>
         <p className="muted small" style={{ marginTop: 0 }}>
           When you create an event here, drop a Discord embed in your squadron's events channel via Ops Bot.

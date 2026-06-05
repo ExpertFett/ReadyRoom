@@ -297,6 +297,33 @@ export function getAttendanceMetrics(wingId, fromMs, toMs) {
   };
 }
 
+// Per-event attendance for charting. One row per tracked event in the
+// window, with attendance counts + computed rate. Returned newest-first.
+const selectAttendanceTimeseries = db.prepare(`
+  SELECT e.id, e.title, e.kind, e.start_at,
+    SUM(CASE WHEN ea.status = 'present'      THEN 1 ELSE 0 END) AS present,
+    SUM(CASE WHEN ea.status = 'extra_credit' THEN 1 ELSE 0 END) AS extra_credit,
+    SUM(CASE WHEN ea.status = 'excused'      THEN 1 ELSE 0 END) AS excused,
+    SUM(CASE WHEN ea.status = 'ua'           THEN 1 ELSE 0 END) AS ua,
+    SUM(CASE WHEN ea.status = 'absent'       THEN 1 ELSE 0 END) AS absent
+  FROM events e
+  LEFT JOIN event_attendance ea ON ea.event_id = e.id
+  WHERE e.wing_id = ? AND e.start_at BETWEEN ? AND ? AND e.track_attendance = 1
+  GROUP BY e.id
+  ORDER BY e.start_at ASC
+`);
+export function getAttendanceTimeseries(wingId, fromMs, toMs) {
+  return selectAttendanceTimeseries.all(wingId, fromMs, toMs).map((r) => {
+    const total = (r.present || 0) + (r.extra_credit || 0) + (r.excused || 0) + (r.ua || 0) + (r.absent || 0);
+    const attended = (r.present || 0) + (r.extra_credit || 0);
+    return {
+      ...r,
+      total_marks: total,
+      attendance_rate: total ? Math.round((attended / total) * 1000) / 10 : 0,
+    };
+  });
+}
+
 export function getPilotPerformance(wingId, fromMs, toMs) {
   return selectPilotPerformance.all(fromMs, toMs, wingId).map((r) => {
     const tracked = r.events;

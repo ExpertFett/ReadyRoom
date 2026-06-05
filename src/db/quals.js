@@ -227,16 +227,20 @@ export function getWingCurrency(wingId) {
 
 // --- training board (pilots × activities matrix) ------------------------
 const selectWingMembersOrdered = db.prepare(`
-  SELECT m.id, m.callsign, m.name, m.modex, m.subdivision, m.squadron_id, sq.tag AS sqn_tag
+  SELECT m.id, m.callsign, m.name, m.rank, m.billet, m.modex, m.subdivision, m.squadron_id, sq.tag AS sqn_tag
   FROM members m LEFT JOIN squadrons sq ON sq.id = m.squadron_id
   WHERE m.wing_id = ? AND m.status != 'retired'
   ORDER BY sq.id ASC, m.modex ASC, m.callsign ASC
 `);
 const selectSquadronMembersOrdered = db.prepare(`
-  SELECT id, callsign, name, modex, subdivision, squadron_id, NULL AS sqn_tag
+  SELECT id, callsign, name, rank, billet, modex, subdivision, squadron_id, NULL AS sqn_tag
   FROM members WHERE squadron_id = ? AND status != 'retired'
   ORDER BY modex ASC, callsign ASC
 `);
+// Per-member hold status for THIS qual (for the column-header expiration line).
+const selectMemberQualsForBoard = db.prepare(
+  'SELECT member_id, status, expires_at, awarded_at FROM member_quals WHERE qual_id = ?'
+);
 const selectQualSignoffs = db.prepare(`
   SELECT s.member_id, s.activity_id, s.status FROM member_activity_signoffs s
   JOIN qual_activities a ON a.id = s.activity_id WHERE a.qual_id = ?
@@ -246,9 +250,21 @@ export function getTrainingBoard(qualId, { squadronId } = {}) {
   const qual = selectQualById.get(qualId);
   if (!qual) return null;
   const activities = getActivities(qualId);
-  const members = squadronId
+  const rawMembers = squadronId
     ? selectSquadronMembersOrdered.all(squadronId)
     : selectWingMembersOrdered.all(qual.wing_id);
+  // Attach this member's hold-status on this qual (for the column header
+  // "EXPIRED / Exp: MM/DD/YY" treatment Deckboss uses).
+  const holds = new Map(selectMemberQualsForBoard.all(qualId).map((h) => [h.member_id, h]));
+  const members = rawMembers.map((m) => {
+    const h = holds.get(m.id) || null;
+    return {
+      ...m,
+      hold_status: h?.status || null,
+      hold_expires_at: h?.expires_at || null,
+      hold_currency: h ? currencyStatus(h) : null,
+    };
+  });
   const so = selectQualSignoffs.all(qualId);
   const key = (m, a) => `${m}:${a}`;
   const byKey = new Map(so.map((s) => [key(s.member_id, s.activity_id), s.status]));

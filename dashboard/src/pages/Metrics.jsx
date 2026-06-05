@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
+import { BarChart } from '../components/BarChart.jsx';
+
+const DOW_ORDER = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const dayMs = 86400000;
 const toIso = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -14,17 +17,44 @@ export default function Metrics() {
   }));
   const [metrics, setMetrics] = useState(null);
   const [perf, setPerf] = useState([]);
+  const [series, setSeries] = useState([]);
 
   const load = async () => {
     if (!activeWing) return;
     const fromMs = new Date(range.from).getTime();
     const toMs = new Date(range.to).getTime();
-    const [m, p] = await Promise.all([
+    const [m, p, ts] = await Promise.all([
       api.get(`/api/wings/${activeWing.id}/attendance-metrics?from=${fromMs}&to=${toMs}`),
       api.get(`/api/wings/${activeWing.id}/pilot-performance?from=${fromMs}&to=${toMs}`),
+      api.get(`/api/wings/${activeWing.id}/attendance-timeseries?from=${fromMs}&to=${toMs}`),
     ]);
-    setMetrics(m); setPerf(p);
+    setMetrics(m); setPerf(p); setSeries(ts);
   };
+
+  // Per-event chart data (one bar per tracked event in window)
+  const eventChart = useMemo(() => series.map((e) => ({
+    label: new Date(e.start_at).toLocaleDateString([], { month: 'numeric', day: 'numeric' }),
+    value: e.attendance_rate,
+    color: e.attendance_rate >= 75 ? '#4cd964' : e.attendance_rate >= 50 ? '#ffcc00' : '#ff6464',
+  })), [series]);
+
+  // Day-of-week breakdown — average attendance % per weekday across the window
+  const dowChart = useMemo(() => {
+    const sums = Object.fromEntries(DOW_ORDER.map((d) => [d, { total: 0, n: 0 }]));
+    for (const e of series) {
+      const d = DOW_ORDER[new Date(e.start_at).getDay()];
+      sums[d].total += e.attendance_rate;
+      sums[d].n += 1;
+    }
+    return DOW_ORDER.map((d) => {
+      const avg = sums[d].n ? Math.round(sums[d].total / sums[d].n) : 0;
+      return {
+        label: d,
+        value: avg,
+        color: sums[d].n === 0 ? '#444' : avg >= 75 ? '#4cd964' : avg >= 50 ? '#ffcc00' : '#ff6464',
+      };
+    });
+  }, [series]);
   useEffect(() => { load(); }, [range, activeWing]);
 
   const preset = (days) => () => setRange({ from: toIso(Date.now() - days * dayMs), to: toIso(Date.now() + dayMs) });
@@ -53,6 +83,20 @@ export default function Metrics() {
           <Stat label="Pilots Tracked" value={metrics.pilots_tracked} kind="info" sub="distinct pilots in window" />
           <Stat label="UA Instances" value={metrics.ua_instances} kind="warn" sub={`${metrics.excused} excused`} />
         </div>
+      )}
+
+      {series.length > 0 && (
+        <>
+          <h2>All Events <span className="muted small">({series.length} tracked)</span></h2>
+          <div className="card" style={{ padding: 12, marginBottom: 14 }}>
+            <BarChart data={eventChart} height={220} />
+          </div>
+
+          <h2>By Day of Week <span className="muted small">(average rate)</span></h2>
+          <div className="card" style={{ padding: 12, marginBottom: 14 }}>
+            <BarChart data={dowChart} height={180} />
+          </div>
+        </>
       )}
 
       <h2>Individual pilot performance</h2>

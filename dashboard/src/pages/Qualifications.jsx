@@ -21,6 +21,7 @@ import MyQuals from './MyQuals.jsx';
 import CurrencyStatus from './CurrencyStatus.jsx';
 import BulkAssign from '../components/BulkAssign.jsx';
 import BulkSignoff from '../components/BulkSignoff.jsx';
+import BulkMigration from '../components/BulkMigration.jsx';
 import ManageQuals from '../components/ManageQuals.jsx';
 
 const TABS = [
@@ -30,6 +31,7 @@ const TABS = [
   { key: 'board',    label: 'Training Board' },
   { key: 'assign',   label: 'Bulk Assign', adminOnly: true },
   { key: 'signoff',  label: 'Bulk Sign-off', adminOnly: true },
+  { key: 'migration', label: 'Bulk Migration', adminOnly: true },
   { key: 'manage',   label: 'Manage', adminOnly: true },
 ];
 
@@ -62,6 +64,7 @@ export default function Qualifications() {
       {tab === 'board'    && <BoardPicker wing={activeWing} />}
       {tab === 'assign'   && me.isAdmin && <BulkAssign wing={activeWing} />}
       {tab === 'signoff'  && me.isAdmin && <BulkSignoff wing={activeWing} />}
+      {tab === 'migration' && me.isAdmin && <BulkMigration wing={activeWing} />}
       {tab === 'manage'   && me.isAdmin && <ManageQuals wing={activeWing} />}
     </div>
   );

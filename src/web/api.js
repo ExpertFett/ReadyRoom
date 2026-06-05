@@ -4,7 +4,7 @@ import { wingOf } from '../db/access.js';
 import { logAction, getAuditLog, getAuditFilters } from '../db/audit.js';
 import {
   createWing, getWings, getWingsForUser, userHasWingAccess, getWing, updateWing, deleteWing,
-  getWingIngestToken, regenerateWingIngestToken, setWingOpsBot,
+  getWingIngestToken, regenerateWingIngestToken, setWingOpsBot, setWingDiscordPaused, getLastPublishedEvent,
   createSquadron, getSquadrons, getSquadron, updateSquadron, deleteSquadron,
   createMember, getMember, getMembersByWing, getMembersBySquadron, updateMember, deleteMember,
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
@@ -38,7 +38,7 @@ import {
   createEvent, getEvent, updateEvent, deleteEvent, getEventsInRange,
   markAttendance, clearAttendance, getEventAttendance, getEventRoster,
   createLOA, getLOA, setLOAStatus, deleteLOA, getUpcomingLOAs, getMemberLOAs,
-  getAttendanceMetrics, getPilotPerformance, setEventDiscord,
+  getAttendanceMetrics, getAttendanceTimeseries, getPilotPerformance, setEventDiscord,
 } from '../db/events.js';
 import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
 import {
@@ -266,6 +266,28 @@ export function apiRouter() {
     const url = `${getBaseUrl()}/ingest/${regenerateWingIngestToken(wing.id)}`;
     audit(req, wing.id, 'regenerated', 'ingest_token', wing.id, 'Sortie ingest token rotated');
     res.json({ ingest_url: url });
+  });
+
+  // Discord publish status panel data + pause toggle (Phase 4.4).
+  router.get('/wings/:id/discord-status', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const wired = !!(wing.ops_bot_url && wing.ops_bot_token);
+    res.json({
+      wired,
+      paused: !!wing.discord_paused,
+      ops_bot_url: wing.ops_bot_url || null,
+      last_published: getLastPublishedEvent(wing.id),
+    });
+  });
+  router.put('/wings/:id/discord-paused', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const paused = !!req.body?.paused;
+    const updated = setWingDiscordPaused(wing.id, paused);
+    audit(req, wing.id, paused ? 'paused' : 'resumed', 'ops_bot_config', wing.id,
+      paused ? 'Discord publish paused' : 'Discord publish resumed');
+    res.json(updated);
   });
 
   // Wing-level Ops Bot publish settings (Discord embed bridge — Epic 5b).
@@ -978,7 +1000,7 @@ export function apiRouter() {
 
     // Fire-and-forget: drop a Discord embed via Ops Bot if the wing is wired up.
     const wing = getWing(wingId);
-    if (wing.ops_bot_url && wing.ops_bot_token) {
+    if (wing.ops_bot_url && wing.ops_bot_token && !wing.discord_paused) {
       opsbotPublishEvent(wing, {
         title: event.title,
         description: event.description,
@@ -1010,7 +1032,7 @@ export function apiRouter() {
     });
     // Fire-and-forget: edit the Discord embed if we have one wired.
     const wing = getWing(updated.wing_id);
-    if (wing?.ops_bot_url && wing?.ops_bot_token && updated.discord_message_id) {
+    if (wing?.ops_bot_url && wing?.ops_bot_token && !wing?.discord_paused && updated.discord_message_id) {
       opsbotEditEvent(wing, updated.discord_message_id, {
         title: updated.title, description: updated.description, kind: updated.kind,
         start_at: updated.start_at, url: `${getBaseUrl()}/events/${updated.id}`,
@@ -1025,7 +1047,7 @@ export function apiRouter() {
     if (!e) return res.json({ ok: false });
     // Fire-and-forget: nuke the Discord embed before we drop the row.
     const wing = getWing(e.wing_id);
-    if (wing?.ops_bot_url && wing?.ops_bot_token && e.discord_message_id) {
+    if (wing?.ops_bot_url && wing?.ops_bot_token && !wing?.discord_paused && e.discord_message_id) {
       opsbotDeleteEvent(wing, e.discord_message_id);
     }
     const ok = deleteEvent(e.id) > 0;
@@ -1110,6 +1132,15 @@ export function apiRouter() {
     const to = ms(req.query.to);
     if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
     res.json(getPilotPerformance(wing.id, from, to));
+  });
+  // Per-event timeseries — powers the bar charts on the Metrics page.
+  router.get('/wings/:id/attendance-timeseries', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const from = ms(req.query.from);
+    const to = ms(req.query.to);
+    if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
+    res.json(getAttendanceTimeseries(wing.id, from, to));
   });
 
   // ----- Phase 3.2: training session logging -----
