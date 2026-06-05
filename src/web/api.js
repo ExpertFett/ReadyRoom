@@ -1,5 +1,6 @@
 import { Router, raw } from 'express';
 import db from '../db/index.js';
+import { wingOf } from '../db/access.js';
 import {
   createWing, getWings, getWingsForUser, userHasWingAccess, getWing, updateWing, deleteWing,
   getWingIngestToken, regenerateWingIngestToken, setWingOpsBot,
@@ -148,6 +149,59 @@ export function apiRouter() {
     if (!actor.user) return false;
     return userHasWingAccess(actor.user.id, wingId);
   };
+
+  // Single-shot resource-wing access guard. Returns true if the response was
+  // already terminated (404 or 403); the caller should bail. Returns false if
+  // the request is OK to proceed.
+  //
+  //   if (denyResource(req, res, 'member', req.params.id)) return;
+  const denyResource = (req, res, type, id) => {
+    const wingId = wingOf(type, id);
+    if (wingId == null) { res.status(404).json({ error: 'not_found' }); return true; }
+    if (!assertWingAccess(req, wingId)) { res.status(403).json({ error: 'forbidden_wing' }); return true; }
+    return false;
+  };
+
+  // SECURITY (resource-keyed): nested resources (/members/:id, /quals/:id,
+  // /events/:id, etc.) carry their own ID in the URL, not a wing_id. The
+  // wing-path middleware above only catches /wings/:id… patterns. This one
+  // pattern-matches the rest and looks up each resource's wing_id via
+  // wingOf(type, id), then enforces access the same way.
+  //
+  // Map of path prefix → resource type for wingOf(). The middleware below
+  // walks this list, returns 404 if the resource doesn't exist (which is
+  // also a safer signal than 403 for unknown IDs), or 403 on cross-wing.
+  const RESOURCE_PATH_GUARDS = [
+    [/^\/members\/(\d+)/,           'member'],
+    [/^\/squadrons\/(\d+)/,         'squadron'],
+    [/^\/aliases\/(\d+)/,           'alias'],
+    [/^\/quals\/(\d+)/,             'qual'],
+    [/^\/activities\/(\d+)/,        'activity'],
+    [/^\/qual-tracks\/(\d+)/,       'qual_track'],
+    [/^\/campaigns\/(\d+)/,         'campaign'],
+    [/^\/missions\/(\d+)/,          'mission'],
+    [/^\/flights\/(\d+)/,           'flight'],
+    [/^\/resources\/(\d+)/,         'resource'],
+    [/^\/signups\/(\d+)/,           'signup'],
+    [/^\/events\/(\d+)/,            'event'],
+    [/^\/loas\/(\d+)/,              'loa'],
+    [/^\/training-sessions\/(\d+)/, 'training_session'],
+    [/^\/documents\/(\d+)/,         'document'],
+    [/^\/carriers\/(\d+)/,          'carrier'],
+    [/^\/traps\/(\d+)/,             'trap'],
+  ];
+  router.use((req, res, next) => {
+    const actor = getActor(req);
+    if (actor.root) return next();
+    for (const [re, type] of RESOURCE_PATH_GUARDS) {
+      const m = req.path.match(re);
+      if (m) {
+        if (denyResource(req, res, type, m[1])) return;
+        return next();
+      }
+    }
+    next();
+  });
 
   // A member is editable by an admin, or by the user it belongs to (self-service).
   const canEditMember = (req, member) => {
