@@ -134,6 +134,40 @@ ensureColumn('quals', 'completion_deadline_days', 'INTEGER');
 ensureColumn('wings', 'ops_bot_url', 'TEXT');     // base URL of the Ops Bot (e.g. https://dcsoptbot-production-0c4b.up.railway.app)
 ensureColumn('wings', 'ops_bot_token', 'TEXT');   // per-guild outbound token revealed by the Ops Bot dashboard
 
+// --- Phase 3.3: multi-crew qualification tracks ---
+// Quals can optionally have crew-position tracks (e.g. F-14B IQT has pilot
+// and RIO tracks). A qual with 0 tracks defined is treated as single-seat.
+// member_quals.track stores which track this pilot is on for this qual
+// (NULL = single-seat / not applicable).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS qual_tracks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    qual_id    INTEGER NOT NULL REFERENCES quals(id) ON DELETE CASCADE,
+    code       TEXT NOT NULL,
+    label      TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_qual_tracks_unique ON qual_tracks (qual_id, code);
+`);
+ensureColumn('member_quals', 'track', 'TEXT');
+
+// --- Phase 3: modex pools per subdivision ---
+// Each subdivision (main/ready_reserve/candidate/frs) on a wing can have an
+// allocated modex range. When admins create new pilots, the "Available: N"
+// hint on the Personnel page reads from these pools to show the next free
+// number in the relevant subdivision. Pools are optional — wings without
+// them just don't get the hint.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS modex_pools (
+    wing_id     INTEGER NOT NULL REFERENCES wings(id) ON DELETE CASCADE,
+    subdivision TEXT NOT NULL,
+    range_start INTEGER NOT NULL,
+    range_end   INTEGER NOT NULL,
+    notes       TEXT,
+    PRIMARY KEY (wing_id, subdivision)
+  );
+`);
+
 // --- Epic 7: access levels (capability tags) ---
 // Comma-separated tags. Standard set: JTAC, GM, ATC, LSO, IP, AWACS, FAC.
 // Independent of app_role (member|commander|admin) which is the auth tier.
@@ -168,6 +202,31 @@ export function createWing({ name, tag, description }) {
 }
 export function getWings() {
   return selectWings.all();
+}
+
+// SECURITY: wings the given Discord user has access to via roster membership.
+// Used by GET /api/wings to prevent multi-tenant data leakage — without this
+// filter, every logged-in user saw every wing because activeWing = wings[0]
+// in the dashboard. Root admins (config.rootAdminIds) bypass this via the
+// caller; this only returns membership-derived rows.
+const selectWingsForMemberStmt = db.prepare(`
+  SELECT DISTINCT w.* FROM wings w
+  JOIN members m ON m.wing_id = w.id
+  WHERE m.discord_user_id = ?
+  ORDER BY w.id ASC
+`);
+export function getWingsForUser(discordUserId) {
+  if (!discordUserId) return [];
+  return selectWingsForMemberStmt.all(String(discordUserId));
+}
+
+// Cheap membership probe — used by the access guard middleware.
+const checkWingMembershipStmt = db.prepare(
+  'SELECT 1 FROM members WHERE wing_id = ? AND discord_user_id = ? LIMIT 1'
+);
+export function userHasWingAccess(discordUserId, wingId) {
+  if (!discordUserId || !wingId) return false;
+  return !!checkWingMembershipStmt.get(Number(wingId), String(discordUserId));
 }
 export function getWing(id) {
   return selectWing.get(id) || null;
@@ -414,6 +473,94 @@ export function resolveAlias(alias) {
 }
 export function deleteAlias(id) {
   return deleteAliasStmt.run(id).changes;
+}
+
+// ---------------------------------------------------------------------------
+// Qualification crew-position tracks (Phase 3.3)
+// ---------------------------------------------------------------------------
+const selectTracksStmt = db.prepare('SELECT * FROM qual_tracks WHERE qual_id = ? ORDER BY sort_order ASC, code ASC');
+const insertTrackStmt = db.prepare(
+  'INSERT INTO qual_tracks (qual_id, code, label, sort_order) VALUES (?, ?, ?, ?)'
+);
+const deleteTrackStmt = db.prepare('DELETE FROM qual_tracks WHERE id = ?');
+
+export function getQualTracks(qualId) {
+  return selectTracksStmt.all(qualId);
+}
+
+export function createQualTrack(qualId, { code, label, sort_order }) {
+  if (!code || !label) throw new Error('missing_fields');
+  try {
+    const r = insertTrackStmt.run(
+      qualId,
+      String(code).trim().slice(0, 20),
+      String(label).trim().slice(0, 60),
+      Number(sort_order) || 0,
+    );
+    return selectTracksStmt.all(qualId).find((t) => t.id === Number(r.lastInsertRowid));
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) throw new Error('duplicate_code');
+    throw err;
+  }
+}
+
+export function deleteQualTrack(id) {
+  return deleteTrackStmt.run(id).changes;
+}
+
+// ---------------------------------------------------------------------------
+// Modex pools (Phase 3.1)
+// ---------------------------------------------------------------------------
+const selectPoolsStmt = db.prepare('SELECT * FROM modex_pools WHERE wing_id = ? ORDER BY range_start ASC');
+const upsertPoolStmt = db.prepare(`
+  INSERT INTO modex_pools (wing_id, subdivision, range_start, range_end, notes)
+  VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(wing_id, subdivision) DO UPDATE SET
+    range_start = excluded.range_start,
+    range_end = excluded.range_end,
+    notes = excluded.notes
+`);
+const deletePoolStmt = db.prepare('DELETE FROM modex_pools WHERE wing_id = ? AND subdivision = ?');
+const selectUsedModexStmt = db.prepare(
+  `SELECT modex FROM members
+   WHERE wing_id = ? AND subdivision = ? AND modex IS NOT NULL AND status != 'retired'`
+);
+
+export function getModexPools(wingId) {
+  return selectPoolsStmt.all(wingId);
+}
+
+export function setModexPool(wingId, subdivision, { range_start, range_end, notes }) {
+  if (!Number.isFinite(Number(range_start)) || !Number.isFinite(Number(range_end))) {
+    throw new Error('bad_range');
+  }
+  upsertPoolStmt.run(
+    wingId,
+    String(subdivision),
+    Math.floor(Number(range_start)),
+    Math.floor(Number(range_end)),
+    notes ? String(notes).slice(0, 200) : null,
+  );
+  return selectPoolsStmt.all(wingId).find((p) => p.subdivision === subdivision);
+}
+
+export function deleteModexPool(wingId, subdivision) {
+  return deletePoolStmt.run(wingId, subdivision).changes;
+}
+
+// Returns the available modex numbers in this subdivision's pool, capped at
+// `limit`. Used by the Personnel/Squadron page header hint.
+export function getAvailableModex(wingId, subdivision, limit = 20) {
+  const pool = selectPoolsStmt.all(wingId).find((p) => p.subdivision === subdivision);
+  if (!pool) return { pool: null, available: [], next: null };
+  const used = new Set(selectUsedModexStmt.all(wingId, subdivision)
+    .map((r) => String(r.modex).trim())
+    .filter(Boolean));
+  const available = [];
+  for (let n = pool.range_start; n <= pool.range_end && available.length < limit; n++) {
+    if (!used.has(String(n))) available.push(n);
+  }
+  return { pool, available, next: available[0] ?? null };
 }
 
 // ---------------------------------------------------------------------------

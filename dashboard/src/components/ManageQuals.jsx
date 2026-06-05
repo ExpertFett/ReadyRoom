@@ -98,6 +98,7 @@ export default function ManageQuals({ wing }) {
             <button className="primary">{editing.id ? 'Save changes' : 'Create'}</button>
             <button type="button" className="small" onClick={() => setEditing(null)}>Cancel</button>
           </div>
+          {editing.id && <CrewTracks qualId={editing.id} />}
         </form>
       )}
 
@@ -133,6 +134,61 @@ export default function ManageQuals({ wing }) {
         )}
       </div>
     </div>
+  );
+}
+
+// For multi-crew quals — Pilot / RIO / WSO / etc. A qual with zero tracks is
+// treated as single-seat throughout the app. Tracks can only be defined on
+// already-saved quals (need the qual_id).
+function CrewTracks({ qualId }) {
+  const [tracks, setTracks] = useState([]);
+  const [adding, setAdding] = useState({ code: '', label: '', sort_order: 0 });
+
+  const load = () => api.get(`/api/quals/${qualId}/tracks`).then(setTracks);
+  useEffect(() => { load(); }, [qualId]);
+
+  const add = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!adding.code.trim() || !adding.label.trim()) return;
+    try {
+      await api.post(`/api/quals/${qualId}/tracks`, adding);
+      setAdding({ code: '', label: '', sort_order: 0 });
+      load();
+    } catch (err) {
+      alert(`Add track failed: ${err.message}`);
+    }
+  };
+  const remove = async (id) => {
+    if (!confirm('Remove this track?')) return;
+    await api.del(`/api/qual-tracks/${id}`);
+    load();
+  };
+
+  return (
+    <section style={{ marginTop: 14, padding: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'rgba(255,255,255,0.02)' }}>
+      <h4 style={{ margin: '0 0 4px' }}>Crew position tracks</h4>
+      <p className="small muted" style={{ marginTop: 0 }}>
+        For multi-crew quals (e.g. F-14B with Pilot + RIO). Leave empty for single-seat.
+      </p>
+      {tracks.length > 0 && (
+        <div className="chip-row" style={{ marginBottom: 8 }}>
+          {tracks.map((t) => (
+            <span key={t.id} className="chip">
+              <b>{t.code}</b> · {t.label}
+              <button type="button" onClick={() => remove(t.id)} title="Remove" style={{ marginLeft: 4 }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="row" style={{ gap: 6, alignItems: 'flex-end' }}>
+        <div className="field" style={{ flex: '0 0 100px' }}><label>Code</label>
+          <input value={adding.code} onChange={(e) => setAdding({ ...adding, code: e.target.value })} placeholder="rio" /></div>
+        <div className="field" style={{ flex: 1 }}><label>Label</label>
+          <input value={adding.label} onChange={(e) => setAdding({ ...adding, label: e.target.value })} placeholder="RIO" /></div>
+        <button type="button" className="small" onClick={add}>+ Add track</button>
+      </div>
+    </section>
   );
 }
 

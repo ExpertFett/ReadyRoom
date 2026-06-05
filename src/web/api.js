@@ -1,12 +1,14 @@
 import { Router, raw } from 'express';
 import db from '../db/index.js';
 import {
-  createWing, getWings, getWing, updateWing, deleteWing,
+  createWing, getWings, getWingsForUser, userHasWingAccess, getWing, updateWing, deleteWing,
   getWingIngestToken, regenerateWingIngestToken, setWingOpsBot,
   createSquadron, getSquadrons, getSquadron, updateSquadron, deleteSquadron,
   createMember, getMember, getMembersByWing, getMembersBySquadron, updateMember, deleteMember,
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
   createQual, getQuals, getQual, deleteQual, updateQual, bulkAssignQuals,
+  getModexPools, setModexPool, deleteModexPool, getAvailableModex,
+  getQualTracks, createQualTrack, deleteQualTrack,
   setMemberQual, getMemberQuals, removeMemberQual,
   getRecentSorties, getMemberSorties, getUnmatchedAliases,
 } from '../db/index.js';
@@ -43,6 +45,13 @@ import {
   getTrapsByCarrier, getTrapsByMember, getTrapsByEvent,
   getMemberBoardingStats, getWingGreenieBoard, TRAP_GRADES,
 } from '../db/carrier.js';
+import {
+  createTrainingSession, getTrainingSession, updateTrainingSession, deleteTrainingSession,
+  getSessionsByPilot, getSessionsByInstructor, getTrainingSummary,
+} from '../db/training.js';
+import {
+  createDocument, getDocument, updateDocument, deleteDocument, getDocumentsByWing,
+} from '../db/docs.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, getActor } from './auth.js';
 import { parseMizSlots, flightsFromSlots } from '../services/mizParser.js';
@@ -83,16 +92,62 @@ export function apiRouter() {
   router.get('/me', (req, res) => {
     if (!req.session?.user) return res.status(401).json({ error: 'unauthorized' });
     const actor = getActor(req);
+    // setupNeeded is now per-user: root admins see it true when the system is
+    // empty (so they can stand up a wing), regular users see it true when they
+    // aren't a roster member of any wing (so they can't stumble into someone
+    // else's data via the activeWing = wings[0] frontend default).
+    const accessibleWings = actor.user
+      ? (actor.root ? getWings() : getWingsForUser(actor.user.id))
+      : [];
     res.json({
       user: actor.user,
       isAdmin: actor.isAdmin,
       role: actor.role,
       member: actor.member,
-      setupNeeded: getWings().length === 0,
+      setupNeeded: accessibleWings.length === 0,
     });
   });
 
   router.use(requireAuth);
+
+  // SECURITY: wing access guard. Applied AFTER requireAuth so the user is known.
+  // Resolves a wing_id from path/query/body and rejects (403) if the user isn't
+  // a roster member of that wing — unless they're a root admin (config-level
+  // override for the platform owner).
+  //
+  // Catches the common patterns:
+  //   /wings/:id...              — path-based
+  //   ?wing_id=N                 — query
+  //   POST/PUT body with wing_id — body
+  //
+  // Nested resources keyed by their own ID (/members/:id, /squadrons/:id,
+  // /quals/:id, /events/:id, /traps/:id, /documents/:id, /carriers/:id,
+  // /missions/:id, /loas/:id, /training-sessions/:id) get individual checks
+  // inside their handlers — see helpers below.
+  router.use((req, res, next) => {
+    const actor = getActor(req);
+    if (actor.root) return next();
+    if (!actor.user) return res.status(401).json({ error: 'auth_required' });
+    const pathWing = req.path.match(/^\/wings\/(\d+)/);
+    const wingId =
+      (pathWing && Number(pathWing[1])) ||
+      (req.query.wing_id && Number(req.query.wing_id)) ||
+      (req.body && typeof req.body === 'object' && req.body.wing_id && Number(req.body.wing_id)) ||
+      null;
+    if (wingId == null) return next();
+    if (!userHasWingAccess(actor.user.id, wingId)) {
+      return res.status(403).json({ error: 'forbidden_wing' });
+    }
+    next();
+  });
+
+  // Helper used by nested-resource handlers to assert access.
+  const assertWingAccess = (req, wingId) => {
+    const actor = getActor(req);
+    if (actor.root) return true;
+    if (!actor.user) return false;
+    return userHasWingAccess(actor.user.id, wingId);
+  };
 
   // A member is editable by an admin, or by the user it belongs to (self-service).
   const canEditMember = (req, member) => {
@@ -103,7 +158,11 @@ export function apiRouter() {
 
   // ----- wings -----
   router.get('/wings', (req, res) => {
-    res.json(getWings().map((w) => ({ ...w, squadrons: getSquadrons(w.id).length })));
+    const actor = getActor(req);
+    // Root admins see everything; regular users see only wings where they
+    // hold a roster slot (matched by Discord user ID).
+    const wings = actor.root ? getWings() : getWingsForUser(actor.user?.id);
+    res.json(wings.map((w) => ({ ...w, squadrons: getSquadrons(w.id).length })));
   });
 
   router.post('/wings', requireAdmin, (req, res) => {
@@ -951,6 +1010,109 @@ export function apiRouter() {
     const to = ms(req.query.to);
     if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
     res.json(getPilotPerformance(wing.id, from, to));
+  });
+
+  // ----- Phase 3.2: training session logging -----
+  router.get('/wings/:id/training-summary', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json(getTrainingSummary(wing.id));
+  });
+  router.post('/wings/:id/training-sessions', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    try {
+      const s = createTrainingSession(wing.id, req.body || {}, getActor(req).user?.id || null);
+      res.json(s);
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'create_failed' });
+    }
+  });
+  router.get('/members/:id/training-sessions', (req, res) => {
+    res.json(getSessionsByPilot(Number(req.params.id), Math.min(200, Number(req.query.limit) || 50)));
+  });
+  router.get('/members/:id/instructor-log', (req, res) => {
+    res.json(getSessionsByInstructor(Number(req.params.id), Math.min(200, Number(req.query.limit) || 50)));
+  });
+  router.put('/training-sessions/:id', requireAdmin, (req, res) => {
+    const s = updateTrainingSession(Number(req.params.id), req.body || {});
+    if (!s) return res.status(404).json({ error: 'not_found' });
+    res.json(s);
+  });
+  router.delete('/training-sessions/:id', requireAdmin, (req, res) => {
+    res.json({ ok: deleteTrainingSession(Number(req.params.id)) > 0 });
+  });
+
+  // ----- Phase 3.4: Training Docs CMS -----
+  router.get('/wings/:id/documents', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json(getDocumentsByWing(wing.id));
+  });
+  router.post('/wings/:id/documents', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    try {
+      res.json(createDocument(wing.id, req.body || {}, getActor(req).user?.id || null));
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'create_failed' });
+    }
+  });
+  router.get('/documents/:id', (req, res) => {
+    const d = getDocument(Number(req.params.id));
+    if (!d) return res.status(404).json({ error: 'not_found' });
+    res.json(d);
+  });
+  router.put('/documents/:id', requireAdmin, (req, res) => {
+    const d = updateDocument(Number(req.params.id), req.body || {});
+    if (!d) return res.status(404).json({ error: 'not_found' });
+    res.json(d);
+  });
+  router.delete('/documents/:id', requireAdmin, (req, res) => {
+    res.json({ ok: deleteDocument(Number(req.params.id)) > 0 });
+  });
+
+  // ----- Phase 3.3: crew-position tracks on quals -----
+  router.get('/quals/:id/tracks', (req, res) => {
+    res.json(getQualTracks(Number(req.params.id)));
+  });
+  router.post('/quals/:id/tracks', requireAdmin, (req, res) => {
+    const q = getQual(Number(req.params.id));
+    if (!q) return res.status(404).json({ error: 'not_found' });
+    try {
+      res.json(createQualTrack(q.id, req.body || {}));
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'create_failed' });
+    }
+  });
+  router.delete('/qual-tracks/:id', requireAdmin, (req, res) => {
+    res.json({ ok: deleteQualTrack(Number(req.params.id)) > 0 });
+  });
+
+  // ----- Phase 3.1: modex pools -----
+  router.get('/wings/:id/modex-pools', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json(getModexPools(wing.id));
+  });
+  router.put('/wings/:id/modex-pools/:subdivision', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    try {
+      const p = setModexPool(wing.id, req.params.subdivision, req.body || {});
+      res.json(p);
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'bad_input' });
+    }
+  });
+  router.delete('/wings/:id/modex-pools/:subdivision', requireAdmin, (req, res) => {
+    res.json({ ok: deleteModexPool(Number(req.params.id), req.params.subdivision) > 0 });
+  });
+  // Next-available hint — used inline on Personnel + Squadron pages.
+  router.get('/wings/:id/modex-pools/:subdivision/available', (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json(getAvailableModex(wing.id, req.params.subdivision, 20));
   });
 
   // ----- onboarding / setup walkthrough -----
