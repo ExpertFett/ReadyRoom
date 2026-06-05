@@ -293,13 +293,18 @@ export function setWingDiscordPaused(id, paused) {
   setWingPausedStmt.run(paused ? 1 : 0, id);
   return getWing(id);
 }
-const selectLastPublishedStmt = db.prepare(`
-  SELECT id, title, start_at, updated_at, discord_message_id, discord_channel_id
-  FROM events
-  WHERE wing_id = ? AND discord_message_id IS NOT NULL
-  ORDER BY updated_at DESC LIMIT 1
-`);
+// Lazily prepare — the `events` table is created in src/db/events.js which
+// loads AFTER this module on a fresh DB. Defer prepare to first call.
+let selectLastPublishedStmt = null;
 export function getLastPublishedEvent(wingId) {
+  if (!selectLastPublishedStmt) {
+    selectLastPublishedStmt = db.prepare(`
+      SELECT id, title, start_at, updated_at, discord_message_id, discord_channel_id
+      FROM events
+      WHERE wing_id = ? AND discord_message_id IS NOT NULL
+      ORDER BY updated_at DESC LIMIT 1
+    `);
+  }
   return selectLastPublishedStmt.get(wingId) || null;
 }
 
