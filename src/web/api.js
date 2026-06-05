@@ -11,6 +11,7 @@ import {
   createQual, getQuals, getQual, deleteQual, updateQual, bulkAssignQuals,
   getModexPools, setModexPool, deleteModexPool, getAvailableModex,
   getQualTracks, createQualTrack, deleteQualTrack,
+  enrollPilot, unenrollPilot, getEnrollees,
   setMemberQual, getMemberQuals, removeMemberQual,
   getRecentSorties, getMemberSorties, getUnmatchedAliases,
 } from '../db/index.js';
@@ -1207,6 +1208,33 @@ export function apiRouter() {
     if (!d) return res.json({ ok: false });
     const ok = deleteDocument(d.id) > 0;
     if (ok) audit(req, d.wing_id, 'deleted', 'document', d.id, `Document deleted: ${d.title}`);
+    res.json({ ok });
+  });
+
+  // ----- Cross-Squadron enrollment -----
+  router.get('/squadrons/:id/enrollees', (req, res) => {
+    res.json(getEnrollees(Number(req.params.id)));
+  });
+  router.post('/squadrons/:id/enroll', requireAdmin, (req, res) => {
+    const memberId = Number(req.body?.member_id);
+    if (!memberId) return res.status(400).json({ error: 'missing_member_id' });
+    const m = getMember(memberId);
+    if (!m) return res.status(404).json({ error: 'member_not_found' });
+    if (m.squadron_id === Number(req.params.id)) return res.status(400).json({ error: 'already_primary' });
+    const result = enrollPilot(req.params.id, memberId, str(req.body?.notes, 500));
+    audit(req, m.wing_id, 'enrolled', 'cross_squadron', memberId,
+      `Enrolled ${m.callsign || m.name} in squadron #${req.params.id}`);
+    res.json(result);
+  });
+  router.delete('/squadrons/:id/enroll/:memberId', requireAdmin, (req, res) => {
+    const sqnId = Number(req.params.id);
+    const memberId = Number(req.params.memberId);
+    const ok = unenrollPilot(sqnId, memberId) > 0;
+    if (ok) {
+      const m = getMember(memberId);
+      if (m) audit(req, m.wing_id, 'unenrolled', 'cross_squadron', memberId,
+        `Unenrolled ${m.callsign || m.name} from squadron #${sqnId}`);
+    }
     res.json({ ok });
   });
 

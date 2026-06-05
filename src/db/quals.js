@@ -232,10 +232,23 @@ const selectWingMembersOrdered = db.prepare(`
   WHERE m.wing_id = ? AND m.status != 'retired'
   ORDER BY sq.id ASC, m.modex ASC, m.callsign ASC
 `);
+// Squadron training board column source: direct members + cross-squadron
+// enrollees. Enrollees are flagged with `is_enrolled = 1` and carry their
+// home squadron tag so the column header can mark them visually.
 const selectSquadronMembersOrdered = db.prepare(`
-  SELECT id, callsign, name, rank, billet, modex, subdivision, squadron_id, NULL AS sqn_tag
-  FROM members WHERE squadron_id = ? AND status != 'retired'
-  ORDER BY modex ASC, callsign ASC
+  SELECT
+    m.id, m.callsign, m.name, m.rank, m.billet, m.modex, m.subdivision,
+    m.squadron_id,
+    CASE WHEN m.squadron_id = ? THEN NULL ELSE hsq.tag END AS sqn_tag,
+    CASE WHEN m.squadron_id = ? THEN 0 ELSE 1 END AS is_enrolled
+  FROM members m
+  LEFT JOIN squadrons hsq ON hsq.id = m.squadron_id
+  WHERE m.status != 'retired'
+    AND (
+      m.squadron_id = ?
+      OR m.id IN (SELECT member_id FROM squadron_enrollments WHERE squadron_id = ?)
+    )
+  ORDER BY is_enrolled ASC, modex ASC, callsign ASC
 `);
 // Per-member hold status for THIS qual (for the column-header expiration line).
 const selectMemberQualsForBoard = db.prepare(
@@ -251,7 +264,7 @@ export function getTrainingBoard(qualId, { squadronId } = {}) {
   if (!qual) return null;
   const activities = getActivities(qualId);
   const rawMembers = squadronId
-    ? selectSquadronMembersOrdered.all(squadronId)
+    ? selectSquadronMembersOrdered.all(squadronId, squadronId, squadronId, squadronId)
     : selectWingMembersOrdered.all(qual.wing_id);
   // Attach this member's hold-status on this qual (for the column header
   // "EXPIRED / Exp: MM/DD/YY" treatment Deckboss uses).

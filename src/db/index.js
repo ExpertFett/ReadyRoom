@@ -152,6 +152,22 @@ db.exec(`
 `);
 ensureColumn('member_quals', 'track', 'TEXT');
 
+// --- Cross-Squadron enrollment (distinct from detachment attachments) ---
+// member_attachments = "this pilot is FT/PT on a detachment, belongs to two
+//   squadrons". squadron_enrollments = "this pilot trains under our pipeline
+//   without being part of our squadron". Visible on the host squadron's
+//   training board; doesn't change the pilot's primary squadron.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS squadron_enrollments (
+    squadron_id INTEGER NOT NULL REFERENCES squadrons(id) ON DELETE CASCADE,
+    member_id   INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    notes       TEXT,
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (squadron_id, member_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_enroll_member ON squadron_enrollments (member_id);
+`);
+
 // --- Phase 3: modex pools per subdivision ---
 // Each subdivision (main/ready_reserve/candidate/frs) on a wing can have an
 // allocated modex range. When admins create new pilots, the "Available: N"
@@ -490,6 +506,48 @@ export function resolveAlias(alias) {
 }
 export function deleteAlias(id) {
   return deleteAliasStmt.run(id).changes;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-Squadron enrollments
+// ---------------------------------------------------------------------------
+const insertEnrollStmt = db.prepare(
+  `INSERT INTO squadron_enrollments (squadron_id, member_id, notes, created_at)
+   VALUES (?, ?, ?, ?)
+   ON CONFLICT(squadron_id, member_id) DO UPDATE SET notes = excluded.notes`
+);
+const deleteEnrollStmt = db.prepare(
+  'DELETE FROM squadron_enrollments WHERE squadron_id = ? AND member_id = ?'
+);
+const selectEnrolleesStmt = db.prepare(`
+  SELECT m.*, e.notes AS enrollment_notes, e.created_at AS enrolled_at,
+         sq.tag AS home_sqn_tag, sq.name AS home_sqn_name
+  FROM squadron_enrollments e
+  JOIN members m ON m.id = e.member_id
+  LEFT JOIN squadrons sq ON sq.id = m.squadron_id
+  WHERE e.squadron_id = ?
+  ORDER BY m.callsign
+`);
+const selectEnrollMemberIdsStmt = db.prepare(
+  'SELECT member_id FROM squadron_enrollments WHERE squadron_id = ?'
+);
+
+export function enrollPilot(squadronId, memberId, notes) {
+  insertEnrollStmt.run(
+    Number(squadronId), Number(memberId),
+    notes ? String(notes).slice(0, 500) : null,
+    Date.now(),
+  );
+  return { squadron_id: Number(squadronId), member_id: Number(memberId) };
+}
+export function unenrollPilot(squadronId, memberId) {
+  return deleteEnrollStmt.run(Number(squadronId), Number(memberId)).changes;
+}
+export function getEnrollees(squadronId) {
+  return selectEnrolleesStmt.all(Number(squadronId));
+}
+export function getEnrolledMemberIds(squadronId) {
+  return selectEnrollMemberIdsStmt.all(Number(squadronId)).map((r) => r.member_id);
 }
 
 // ---------------------------------------------------------------------------
