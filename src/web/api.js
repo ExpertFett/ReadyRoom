@@ -54,7 +54,9 @@ import {
 } from '../db/training.js';
 import {
   createDocument, getDocument, updateDocument, deleteDocument, getDocumentsByWing,
+  setDocumentFile, clearDocumentFile,
 } from '../db/docs.js';
+import { saveDocFile, readDocFile, deleteDocFile, MAX_DOC_FILE_BYTES } from '../services/fileStorage.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, getActor } from './auth.js';
 import { parseMizSlots, flightsFromSlots } from '../services/mizParser.js';
@@ -1206,9 +1208,62 @@ export function apiRouter() {
   router.delete('/documents/:id', requireAdmin, (req, res) => {
     const d = getDocument(Number(req.params.id));
     if (!d) return res.json({ ok: false });
+    // Drop the attached file alongside the row (best-effort).
+    if (d.file_path) deleteDocFile(d.file_path);
     const ok = deleteDocument(d.id) > 0;
     if (ok) audit(req, d.wing_id, 'deleted', 'document', d.id, `Document deleted: ${d.title}`);
     res.json({ ok });
+  });
+
+  // File attachment endpoints. PUT takes the raw bytes as the request body —
+  // simpler than multipart, no extra dep. Filename + content-type come from
+  // headers (set by the browser's fetch when passing a File object directly).
+  router.put('/documents/:id/file',
+    requireAdmin,
+    raw({ type: '*/*', limit: MAX_DOC_FILE_BYTES + 64 }),
+    (req, res) => {
+      const d = getDocument(Number(req.params.id));
+      if (!d) return res.status(404).json({ error: 'not_found' });
+      if (!req.body || !req.body.length) return res.status(400).json({ error: 'empty_body' });
+      if (req.body.length > MAX_DOC_FILE_BYTES) return res.status(413).json({ error: 'too_large' });
+      // Filename comes from X-File-Name header (URL-encoded) or query param.
+      const rawName = decodeURIComponent(req.get('x-file-name') || req.query.filename || 'file');
+      const mime = req.get('x-file-type') || req.get('content-type') || 'application/octet-stream';
+      // Drop any existing file before writing the new one.
+      if (d.file_path) deleteDocFile(d.file_path);
+      const rel = saveDocFile(d.wing_id, d.id, rawName, req.body);
+      const updated = setDocumentFile(d.id, {
+        file_path: rel, file_name: rawName, mime_type: mime, file_size: req.body.length,
+      });
+      audit(req, d.wing_id, 'uploaded', 'document_file', d.id,
+        `Uploaded ${rawName} (${(req.body.length / 1024).toFixed(1)} KB) to "${d.title}"`);
+      res.json(updated);
+    }
+  );
+
+  router.delete('/documents/:id/file', requireAdmin, (req, res) => {
+    const d = getDocument(Number(req.params.id));
+    if (!d) return res.status(404).json({ error: 'not_found' });
+    if (d.file_path) deleteDocFile(d.file_path);
+    const updated = clearDocumentFile(d.id);
+    audit(req, d.wing_id, 'deleted', 'document_file', d.id,
+      `Removed file ${d.file_name || ''} from "${d.title}"`);
+    res.json(updated);
+  });
+
+  // Streamed file download. Same wing access as the doc (already enforced by
+  // the nested-resource guard for /documents/:id paths).
+  router.get('/documents/:id/file', (req, res) => {
+    const d = getDocument(Number(req.params.id));
+    if (!d) return res.status(404).json({ error: 'not_found' });
+    if (!d.file_path) return res.status(404).json({ error: 'no_file' });
+    const file = readDocFile(d.file_path);
+    if (!file) return res.status(404).json({ error: 'file_missing' });
+    res.setHeader('Content-Type', d.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Length', file.size);
+    res.setHeader('Content-Disposition',
+      `inline; filename="${(d.file_name || 'file').replace(/"/g, '')}"`);
+    res.send(file.buffer);
   });
 
   // ----- Cross-Squadron enrollment -----

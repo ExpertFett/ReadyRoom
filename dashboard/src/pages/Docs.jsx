@@ -120,7 +120,8 @@ function Tree({ squadrons, quals, docs, active, setActive }) {
 function DocViewer({ id, isAdmin, onClosed, onChanged }) {
   const [doc, setDoc] = useState(null);
   const [editing, setEditing] = useState(false);
-  useEffect(() => { api.get(`/api/documents/${id}`).then(setDoc); }, [id]);
+  const reload = () => api.get(`/api/documents/${id}`).then(setDoc);
+  useEffect(() => { reload(); }, [id]);
   if (!doc) return <p className="muted">Loading…</p>;
   const remove = async () => {
     if (!confirm(`Delete "${doc.title}"?`)) return;
@@ -144,15 +145,84 @@ function DocViewer({ id, isAdmin, onClosed, onChanged }) {
         </div>
       </div>
       <p className="muted small">Updated {new Date(doc.updated_at).toLocaleString()}</p>
+      <FileAttachment doc={doc} isAdmin={isAdmin} onChanged={() => { reload(); onChanged(); }} />
       <pre style={{
         whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 12,
         background: 'rgba(0,0,0,0.18)', padding: 14, borderRadius: 4,
         fontFamily: 'inherit', fontSize: 14, lineHeight: 1.5,
       }}>
-        {doc.content || <span className="muted">(empty)</span>}
+        {doc.content || <span className="muted">(no markdown content)</span>}
       </pre>
     </section>
   );
+}
+
+function FileAttachment({ doc, isAdmin, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const upload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true); setStatus(`Uploading ${file.name}…`);
+    try {
+      await api.upload(`/api/documents/${doc.id}/file`, file);
+      setStatus('Uploaded ✓');
+      onChanged();
+    } catch (err) {
+      const msg = err.status === 413 ? 'File too large (max 25 MB).' : (err.message || 'Upload failed');
+      setStatus(`Failed: ${msg}`);
+    } finally {
+      setBusy(false);
+      e.target.value = '';   // allow re-uploading the same file
+    }
+  };
+  const remove = async () => {
+    if (!confirm(`Remove ${doc.file_name}?`)) return;
+    await api.del(`/api/documents/${doc.id}/file`);
+    onChanged();
+  };
+  return (
+    <div className="card" style={{ background: 'rgba(255,255,255,0.02)', padding: 12, marginTop: 10 }}>
+      <div className="between">
+        <div>
+          <div className="muted small" style={{ letterSpacing: 0.5 }}>FILE ATTACHMENT</div>
+          {doc.file_path ? (
+            <div style={{ marginTop: 4 }}>
+              <a href={`/api/documents/${doc.id}/file`} target="_blank" rel="noopener noreferrer"
+                 style={{ fontWeight: 600 }}>
+                📎 {doc.file_name}
+              </a>
+              <span className="muted small" style={{ marginLeft: 8 }}>
+                {fmtSize(doc.file_size)} · uploaded {new Date(doc.file_uploaded_at).toLocaleDateString()}
+              </span>
+            </div>
+          ) : (
+            <div className="muted small" style={{ marginTop: 4 }}>No file attached.</div>
+          )}
+        </div>
+        {isAdmin && (
+          <div className="row" style={{ gap: 6 }}>
+            <label className="small primary" style={{
+              cursor: busy ? 'not-allowed' : 'pointer',
+              padding: '4px 12px', borderRadius: 4, display: 'inline-block',
+            }}>
+              {doc.file_path ? 'Replace' : 'Upload'}
+              <input type="file" hidden disabled={busy} onChange={upload} />
+            </label>
+            {doc.file_path && <button className="small danger" onClick={remove} disabled={busy}>Remove</button>}
+          </div>
+        )}
+      </div>
+      {status && <p className="muted small" style={{ marginTop: 6, marginBottom: 0 }}>{status}</p>}
+    </div>
+  );
+}
+
+function fmtSize(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function DocEditor({ initial, wing, squadrons, quals, onSaved, onCancel }) {

@@ -11,7 +11,7 @@
  * containers for docs, not blobs.
  */
 
-import db from './index.js';
+import db, { ensureColumn } from './index.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS documents (
@@ -28,6 +28,31 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_documents_scope ON documents (wing_id, scope, scope_id);
 `);
+
+// File attachment columns (optional — a doc can have markdown content OR a
+// file or both). Path is stored relative to the uploads root and the volume
+// mount is resolved at read time.
+ensureColumn('documents', 'file_path',       'TEXT');
+ensureColumn('documents', 'file_name',       'TEXT');
+ensureColumn('documents', 'mime_type',       'TEXT');
+ensureColumn('documents', 'file_size',       'INTEGER');
+ensureColumn('documents', 'file_uploaded_at','INTEGER');
+
+const setFileStmt = db.prepare(`
+  UPDATE documents SET
+    file_path = ?, file_name = ?, mime_type = ?, file_size = ?,
+    file_uploaded_at = ?, updated_at = ?
+  WHERE id = ?
+`);
+export function setDocumentFile(id, { file_path, file_name, mime_type, file_size }) {
+  const now = Date.now();
+  setFileStmt.run(file_path, file_name, mime_type, file_size, now, now, id);
+  return getDocument(id);
+}
+export function clearDocumentFile(id) {
+  setFileStmt.run(null, null, null, null, null, Date.now(), id);
+  return getDocument(id);
+}
 
 const str = (v, n) => (v == null || v === '' ? null : String(v).slice(0, n));
 const SCOPES = ['wing', 'squadron', 'qual'];
