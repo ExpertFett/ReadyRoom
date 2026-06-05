@@ -19,6 +19,7 @@ import CurrencyStatus from './pages/CurrencyStatus.jsx';
 import Qualifications from './pages/Qualifications.jsx';
 import Training from './pages/Training.jsx';
 import Docs from './pages/Docs.jsx';
+import AuditLog from './pages/AuditLog.jsx';
 import { DiscordButton } from './components/DiscordButton.jsx';
 import { AppFooter } from './components/AppFooter.jsx';
 import { VERSION } from './version.js';
@@ -110,6 +111,7 @@ export default function App() {
           <Route path="/qualifications" element={<Qualifications />} />
           <Route path="/training" element={<Training />} />
           <Route path="/docs" element={<Docs />} />
+          <Route path="/audit-log" element={<AuditLog />} />
           {/* Standalone routes kept for back-compat / direct linking */}
           <Route path="/my-quals" element={<MyQuals />} />
           <Route path="/currency" element={<CurrencyStatus />} />

@@ -1,6 +1,7 @@
 import { Router, raw } from 'express';
 import db from '../db/index.js';
 import { wingOf } from '../db/access.js';
+import { logAction, getAuditLog, getAuditFilters } from '../db/audit.js';
 import {
   createWing, getWings, getWingsForUser, userHasWingAccess, getWing, updateWing, deleteWing,
   getWingIngestToken, regenerateWingIngestToken, setWingOpsBot,
@@ -150,6 +151,15 @@ export function apiRouter() {
     return userHasWingAccess(actor.user.id, wingId);
   };
 
+  // Shorthand for audit-log entries. Pulls actor from the request session
+  // automatically. Never throws — best-effort logging.
+  const audit = (req, wingId, action, entity_type, entity_id, summary, detail) => {
+    logAction({
+      wing_id: wingId, actor: getActor(req).user,
+      action, entity_type, entity_id, summary, detail,
+    });
+  };
+
   // Single-shot resource-wing access guard. Returns true if the response was
   // already terminated (404 or 403); the caller should bail. Returns false if
   // the request is OK to proceed.
@@ -235,7 +245,9 @@ export function apiRouter() {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
     const name = str(req.body?.name, 120) || wing.name;
-    res.json(updateWing(wing.id, { name, tag: str(req.body?.tag, 32), description: str(req.body?.description, 2000) }));
+    const updated = updateWing(wing.id, { name, tag: str(req.body?.tag, 32), description: str(req.body?.description, 2000) });
+    audit(req, wing.id, 'updated', 'wing', wing.id, `Wing settings updated`);
+    res.json(updated);
   });
 
   router.delete('/wings/:id', requireAdmin, (req, res) => {
@@ -251,17 +263,22 @@ export function apiRouter() {
   router.post('/wings/:id/ingest/regen', requireAdmin, (req, res) => {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
-    res.json({ ingest_url: `${getBaseUrl()}/ingest/${regenerateWingIngestToken(wing.id)}` });
+    const url = `${getBaseUrl()}/ingest/${regenerateWingIngestToken(wing.id)}`;
+    audit(req, wing.id, 'regenerated', 'ingest_token', wing.id, 'Sortie ingest token rotated');
+    res.json({ ingest_url: url });
   });
 
   // Wing-level Ops Bot publish settings (Discord embed bridge — Epic 5b).
   router.put('/wings/:id/ops-bot', requireAdmin, (req, res) => {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
-    res.json(setWingOpsBot(wing.id, {
+    const updated = setWingOpsBot(wing.id, {
       ops_bot_url: str(req.body?.ops_bot_url, 500),
       ops_bot_token: str(req.body?.ops_bot_token, 200),
-    }));
+    });
+    audit(req, wing.id, 'updated', 'ops_bot_config', wing.id,
+      updated.ops_bot_url ? `Discord publish wired to ${updated.ops_bot_url}` : 'Discord publish unwired');
+    res.json(updated);
   });
 
   // ----- squadrons -----
@@ -389,7 +406,7 @@ export function apiRouter() {
     const wingId = Number(b.wing_id);
     if (!wingId || !getWing(wingId)) return res.status(400).json({ error: 'bad_wing' });
     try {
-      res.json(createMember(wingId, {
+      const created = createMember(wingId, {
         squadron_id: b.squadron_id ? Number(b.squadron_id) : null,
         discord_user_id: cleanId(b.discord_user_id),
         callsign: str(b.callsign, 60), name: str(b.name, 120), rank: str(b.rank, 60),
@@ -398,7 +415,10 @@ export function apiRouter() {
         status: b.status, app_role: b.app_role, notes: str(b.notes, 4000),
         joined_at: b.joined_at ? new Date(b.joined_at).getTime() : null,
         capabilities: b.capabilities,
-      }));
+      });
+      audit(req, wingId, 'created', 'member', created.id,
+        `Created ${created.callsign || created.name || '?'}${created.modex ? ` (${created.modex})` : ''}`);
+      res.json(created);
     } catch (err) {
       res.status(400).json({ error: err.message === 'alias_taken' ? 'alias_taken' : 'create_failed' });
     }
@@ -439,11 +459,19 @@ export function apiRouter() {
           name: str(b.name, 120) ?? member.name,
           airframes: str(b.airframes, 200) ?? member.airframes,
         };
-    res.json(updateMember(member.id, patch));
+    const updated = updateMember(member.id, patch);
+    audit(req, member.wing_id, 'updated', 'member', member.id,
+      `Updated ${updated.callsign || updated.name || `#${member.id}`}`);
+    res.json(updated);
   });
 
   router.delete('/members/:id', requireAdmin, (req, res) => {
-    res.json({ ok: deleteMember(Number(req.params.id)) > 0 });
+    const member = getMember(Number(req.params.id));
+    if (!member) return res.status(404).json({ error: 'not_found' });
+    const ok = deleteMember(member.id) > 0;
+    if (ok) audit(req, member.wing_id, 'deleted', 'member', member.id,
+      `Deleted ${member.callsign || member.name || `#${member.id}`}`);
+    res.json({ ok });
   });
 
   // ----- pilot aliases (identity bridge) -----
@@ -502,6 +530,7 @@ export function apiRouter() {
           completion_days: Number(b.completion_days) || null,
         });
       }
+      audit(req, wingId, 'created', 'qual', qual.id, `Created qual ${qual.code} (${qual.name})`);
       res.json({
         ...qual,
         is_tier: b.is_tier ? 1 : 0,
@@ -544,11 +573,16 @@ export function apiRouter() {
         completion_days: b.completion_days !== undefined ? (Number(b.completion_days) || null) : undefined,
       });
     }
+    audit(req, q.wing_id, 'updated', 'qual', q.id, `Updated qual ${q.code}`);
     res.json(getQual(q.id));
   });
 
   router.delete('/quals/:id', requireAdmin, (req, res) => {
-    res.json({ ok: deleteQual(Number(req.params.id)) > 0 });
+    const q = getQual(Number(req.params.id));
+    if (!q) return res.status(404).json({ error: 'not_found' });
+    const ok = deleteQual(q.id) > 0;
+    if (ok) audit(req, q.wing_id, 'deleted', 'qual', q.id, `Deleted qual ${q.code}`);
+    res.json({ ok });
   });
 
   // ----- Phase 2 bulk operations -----
@@ -560,7 +594,11 @@ export function apiRouter() {
     const memberIds = (Array.isArray(b.member_ids) ? b.member_ids : []).map(Number).filter(Boolean);
     const mode = ['assign', 'unassign', 'instructor'].includes(b.mode) ? b.mode : 'assign';
     if (!qualIds.length || !memberIds.length) return res.status(400).json({ error: 'missing_ids' });
-    res.json(bulkAssignQuals(qualIds, memberIds, mode));
+    const result = bulkAssignQuals(qualIds, memberIds, mode);
+    audit(req, wing.id, `bulk-${mode}`, 'member_quals', null,
+      `Bulk ${mode}: ${qualIds.length} qual(s) × ${memberIds.length} pilot(s) = ${result.changed} record(s)`,
+      { qual_ids: qualIds, member_ids: memberIds });
+    res.json(result);
   });
 
   router.post('/quals/:id/bulk-signoff', requireAdmin, (req, res) => {
@@ -572,7 +610,11 @@ export function apiRouter() {
     const mode = ['signed', 'reset', 'instructor'].includes(b.mode) ? b.mode : 'signed';
     if (!activityIds.length || !memberIds.length) return res.status(400).json({ error: 'missing_ids' });
     const signerId = getActor(req).member?.id || null;
-    res.json(bulkSignOff(activityIds, memberIds, mode, signerId));
+    const result = bulkSignOff(activityIds, memberIds, mode, signerId);
+    audit(req, q.wing_id, `bulk-signoff-${mode}`, 'activity_signoffs', q.id,
+      `${q.code} bulk sign-off (${mode}): ${activityIds.length} activit(y/ies) × ${memberIds.length} pilot(s) = ${result.changed} cell(s)`,
+      { activity_ids: activityIds, member_ids: memberIds });
+    res.json(result);
   });
 
   router.put('/members/:id/quals/:qualId', requireAdmin, (req, res) => {
@@ -946,6 +988,7 @@ export function apiRouter() {
       }).then((r) => { if (r) setEventDiscord(event.id, r.channel_id, r.message_id); });
     }
 
+    audit(req, wingId, 'created', 'event', event.id, `Event: ${event.title}`);
     res.json(event);
   });
 
@@ -973,6 +1016,7 @@ export function apiRouter() {
         start_at: updated.start_at, url: `${getBaseUrl()}/events/${updated.id}`,
       });
     }
+    audit(req, updated.wing_id, 'updated', 'event', updated.id, `Event updated: ${updated.title}`);
     res.json(updated);
   });
 
@@ -984,7 +1028,9 @@ export function apiRouter() {
     if (wing?.ops_bot_url && wing?.ops_bot_token && e.discord_message_id) {
       opsbotDeleteEvent(wing, e.discord_message_id);
     }
-    res.json({ ok: deleteEvent(e.id) > 0 });
+    const ok = deleteEvent(e.id) > 0;
+    if (ok) audit(req, e.wing_id, 'deleted', 'event', e.id, `Event deleted: ${e.title}`);
+    res.json({ ok });
   });
 
   // ----- attendance -----
@@ -1107,7 +1153,9 @@ export function apiRouter() {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
     try {
-      res.json(createDocument(wing.id, req.body || {}, getActor(req).user?.id || null));
+      const d = createDocument(wing.id, req.body || {}, getActor(req).user?.id || null);
+      audit(req, wing.id, 'created', 'document', d.id, `Document: ${d.title} [${d.scope}${d.scope_id ? ':' + d.scope_id : ''}]`);
+      res.json(d);
     } catch (err) {
       res.status(400).json({ error: err.message || 'create_failed' });
     }
@@ -1120,10 +1168,15 @@ export function apiRouter() {
   router.put('/documents/:id', requireAdmin, (req, res) => {
     const d = updateDocument(Number(req.params.id), req.body || {});
     if (!d) return res.status(404).json({ error: 'not_found' });
+    audit(req, d.wing_id, 'updated', 'document', d.id, `Document updated: ${d.title}`);
     res.json(d);
   });
   router.delete('/documents/:id', requireAdmin, (req, res) => {
-    res.json({ ok: deleteDocument(Number(req.params.id)) > 0 });
+    const d = getDocument(Number(req.params.id));
+    if (!d) return res.json({ ok: false });
+    const ok = deleteDocument(d.id) > 0;
+    if (ok) audit(req, d.wing_id, 'deleted', 'document', d.id, `Document deleted: ${d.title}`);
+    res.json({ ok });
   });
 
   // ----- Phase 3.3: crew-position tracks on quals -----
@@ -1167,6 +1220,22 @@ export function apiRouter() {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
     res.json(getAvailableModex(wing.id, req.params.subdivision, 20));
+  });
+
+  // ----- audit log (admin-only) -----
+  router.get('/wings/:id/audit-log', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json({
+      filters: getAuditFilters(wing.id),
+      entries: getAuditLog(wing.id, {
+        entity_type: req.query.entity_type || null,
+        actor_id: req.query.actor_id || null,
+        from: req.query.from ? Number(req.query.from) : null,
+        to: req.query.to ? Number(req.query.to) : null,
+        limit: Number(req.query.limit) || 200,
+      }),
+    });
   });
 
   // ----- onboarding / setup walkthrough -----

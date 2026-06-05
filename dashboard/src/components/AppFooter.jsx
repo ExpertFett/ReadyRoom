@@ -30,6 +30,7 @@ export function AppFooter({ me, version }) {
               <a href={l.url} target="_blank" rel="noopener noreferrer" title={l.desc}>{l.label}</a>
             </span>
           ))}
+          {me?.isAdmin && <> · <a href="/audit-log">Audit log</a></>}
         </span>
       </div>
     </footer>
