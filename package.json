@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/index.js",
     "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js",
-    "build": "npm --prefix dashboard install && npm --prefix dashboard run build",
+    "build": "npm --prefix dashboard install --include=dev && npm --prefix dashboard run build",
     "dashboard": "npm --prefix dashboard run dev"
   },
   "engines": {
