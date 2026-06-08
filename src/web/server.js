@@ -53,9 +53,22 @@ export function startWebServer() {
       ));
   }
 
+  // Global error handler. Express middleware (body-parser, route handlers)
+  // sets `err.status` / `err.statusCode` on the error object — honor those
+  // before falling back to a generic 500. Without this, the file-upload
+  // 25 MB limit was surfacing as 500 instead of the documented 413.
   app.use((err, req, res, next) => {
-    console.error('Web error:', err);
-    res.status(500).json({ error: 'server_error' });
+    const status = err.status || err.statusCode || 500;
+    if (status >= 500) console.error('Web error:', err);
+    // body-parser tags oversized requests with `err.type === 'entity.too.large'`.
+    // Map known kinds to short error codes for the client; otherwise pass
+    // err.message through so 4xx surfaces are actionable.
+    const code =
+      err.type === 'entity.too.large' ? 'too_large' :
+      err.type === 'entity.parse.failed' ? 'bad_json' :
+      err.code === 'ERR_INVALID_CONTENT_LENGTH' ? 'bad_content_length' :
+      (status >= 500 ? 'server_error' : (err.message || 'request_failed'));
+    res.status(status).json({ error: code });
   });
 
   app.listen(config.port, () => console.log(`ReadyRoom listening on port ${config.port}.`));
