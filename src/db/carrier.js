@@ -27,7 +27,7 @@ db.exec(`
     carrier_id  INTEGER NOT NULL REFERENCES carriers(id) ON DELETE CASCADE,
     member_id   INTEGER REFERENCES members(id) ON DELETE SET NULL,
     pilot_name  TEXT,                -- snapshot at recording time (so it survives detach)
-    event_id    INTEGER REFERENCES events(id) ON DELETE SET NULL,
+    event_id    INTEGER,                -- soft FK to events(id); not enforced because events.js loads later
     airframe    TEXT,
     time_at     INTEGER NOT NULL,
     grade       TEXT NOT NULL,       -- _OK_ | OK | (OK) | -- | C | B | WO | TWO | WOFD

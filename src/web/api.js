@@ -2,6 +2,7 @@ import { Router, raw } from 'express';
 import db from '../db/index.js';
 import { wingOf } from '../db/access.js';
 import { logAction, getAuditLog, getAuditFilters } from '../db/audit.js';
+import { seedDemoWing } from '../services/demoSeeder.js';
 import {
   createWing, getWings, getWingsForUser, userHasWingAccess, getWing, updateWing, deleteWing,
   getWingIngestToken, regenerateWingIngestToken, setWingOpsBot, setWingDiscordPaused, getLastPublishedEvent,
@@ -1334,6 +1335,30 @@ export function apiRouter() {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
     res.json(getAvailableModex(wing.id, req.params.subdivision, 20));
+  });
+
+  // ----- demo wing spawner (root-admin only) -----
+  // Drops a fully-fleshed-out demo wing into the DB for showcase purposes.
+  // Owner is set as admin so the wing shows up in their /api/wings list via
+  // the membership-scoped filter. Safe to call multiple times — each call
+  // creates a new wing; delete via the standard wing delete endpoint when done.
+  router.post('/admin/seed-demo', (req, res) => {
+    const actor = getActor(req);
+    if (!actor.root) return res.status(403).json({ error: 'root_only' });
+    if (!actor.user?.id) return res.status(400).json({ error: 'no_user_id' });
+    try {
+      const result = seedDemoWing({
+        discordUserId: actor.user.id,
+        username: actor.user.username || 'Wing CO',
+      });
+      audit(req, result.wing_id, 'created', 'demo_wing', result.wing_id,
+        `Spawned demo wing #${result.wing_id} for ${actor.user.username || actor.user.id}`,
+        result.summary);
+      res.json(result);
+    } catch (err) {
+      console.error('[seed-demo] failed:', err);
+      res.status(500).json({ error: err.message || 'seed_failed' });
+    }
   });
 
   // ----- audit log (admin-only) -----
