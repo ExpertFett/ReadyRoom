@@ -355,6 +355,7 @@ export function apiRouter() {
       description: str(b.description, 2000), sort_order: b.sort_order,
     });
     if (b.kind === 'detachment') setSquadronKind(created.id, 'detachment');
+    audit(req, wingId, 'created', 'squadron', created.id, `Created squadron ${created.tag || created.name}`);
     res.json(getSquadron(created.id));
   });
 
@@ -374,14 +375,20 @@ export function apiRouter() {
     const sqn = getSquadron(Number(req.params.id));
     if (!sqn) return res.status(404).json({ error: 'not_found' });
     const b = req.body || {};
-    res.json(updateSquadron(sqn.id, {
+    const updated = updateSquadron(sqn.id, {
       name: str(b.name, 120) || sqn.name, tag: str(b.tag, 32), aircraft: str(b.aircraft, 120),
       description: str(b.description, 2000), sort_order: b.sort_order ?? sqn.sort_order,
-    }));
+    });
+    audit(req, sqn.wing_id, 'updated', 'squadron', sqn.id, `Updated squadron ${updated.tag || updated.name}`);
+    res.json(updated);
   });
 
   router.delete('/squadrons/:id', requireAdmin, (req, res) => {
-    res.json({ ok: deleteSquadron(Number(req.params.id)) > 0 });
+    const sqn = getSquadron(Number(req.params.id));
+    if (!sqn) return res.json({ ok: false });
+    const ok = deleteSquadron(sqn.id) > 0;
+    if (ok) audit(req, sqn.wing_id, 'deleted', 'squadron', sqn.id, `Deleted squadron ${sqn.tag || sqn.name}`);
+    res.json({ ok });
   });
 
   // Import a roster from CSV. Headers (lowercased): callsign, name, rank, billet,
@@ -433,6 +440,11 @@ export function apiRouter() {
         });
       }
     }
+    // Only log real writes, not dry-run previews.
+    if (!dry && (summary.created || summary.updated)) {
+      audit(req, sqn.wing_id, 'imported', 'roster', sqn.id,
+        `CSV roster import to ${sqn.tag || sqn.name}: ${summary.created} created, ${summary.updated} updated`);
+    }
     res.json({ ok: true, dry, total: rows.length, ...summary });
   });
 
@@ -441,8 +453,11 @@ export function apiRouter() {
     const sqn = getSquadron(Number(req.params.id));
     if (!sqn) return res.status(404).json({ error: 'not_found' });
     const memberId = Number(req.body?.member_id);
-    if (!memberId || !getMember(memberId)) return res.status(400).json({ error: 'bad_member' });
+    const m = getMember(memberId);
+    if (!memberId || !m) return res.status(400).json({ error: 'bad_member' });
     attachMember(sqn.id, memberId, req.body?.attach_type, str(req.body?.note, 200));
+    audit(req, sqn.wing_id, 'attached', 'detachment', memberId,
+      `Attached ${m.callsign || m.name} to ${sqn.tag || sqn.name}`);
     res.json({ ok: true });
   });
   router.delete('/squadrons/:id/attach/:memberId', requireAdmin, (req, res) => {
@@ -498,17 +513,27 @@ export function apiRouter() {
     const actor = getActor(req);
     if (!canEditMember(req, member)) return res.status(403).json({ error: 'forbidden' });
     const b = req.body || {};
-    // Non-admins may only edit a safe subset of their own profile.
+    // Admins edit the full record, but only fields PRESENT in the body are
+    // changed — an omitted key keeps its existing value. This makes partial
+    // PATCH-style updates safe (the dashboard sends the whole object, but API
+    // consumers shouldn't have to, and a missing key shouldn't null the field).
+    const has = (k) => Object.prototype.hasOwnProperty.call(b, k);
     const patch = actor.isAdmin
       ? {
-          squadron_id: b.squadron_id ? Number(b.squadron_id) : null,
-          discord_user_id: cleanId(b.discord_user_id),
-          callsign: str(b.callsign, 60), name: str(b.name, 120), rank: str(b.rank, 60),
-          billet: str(b.billet, 60), airframes: str(b.airframes, 200),
-          modex: str(b.modex, 12), subdivision: b.subdivision,
-          status: b.status, app_role: b.app_role, notes: str(b.notes, 4000),
-          joined_at: b.joined_at ? new Date(b.joined_at).getTime() : member.joined_at,
-          capabilities: b.capabilities !== undefined ? b.capabilities : member.capabilities,
+          squadron_id: has('squadron_id') ? (b.squadron_id ? Number(b.squadron_id) : null) : member.squadron_id,
+          discord_user_id: has('discord_user_id') ? cleanId(b.discord_user_id) : member.discord_user_id,
+          callsign: has('callsign') ? str(b.callsign, 60) : member.callsign,
+          name: has('name') ? str(b.name, 120) : member.name,
+          rank: has('rank') ? str(b.rank, 60) : member.rank,
+          billet: has('billet') ? str(b.billet, 60) : member.billet,
+          airframes: has('airframes') ? str(b.airframes, 200) : member.airframes,
+          modex: has('modex') ? str(b.modex, 12) : member.modex,
+          subdivision: has('subdivision') ? b.subdivision : member.subdivision,
+          status: has('status') ? b.status : member.status,
+          app_role: has('app_role') ? b.app_role : member.app_role,
+          notes: has('notes') ? str(b.notes, 4000) : member.notes,
+          joined_at: has('joined_at') ? (b.joined_at ? new Date(b.joined_at).getTime() : null) : member.joined_at,
+          capabilities: has('capabilities') ? b.capabilities : member.capabilities,
         }
       : {
           ...member,
@@ -539,6 +564,8 @@ export function apiRouter() {
     try {
       const alias = addAlias(member.id, req.body?.alias);
       const relinked = relinkSortiesForAlias(alias.alias, member.id);
+      audit(req, member.wing_id, 'added', 'alias', member.id,
+        `Added pilot alias "${alias.alias}" to ${member.callsign || member.name}${relinked ? ` (relinked ${relinked} sortie(s))` : ''}`);
       res.json({ ...alias, relinked });
     } catch (err) {
       const code = err.message === 'alias_taken' ? 409 : 400;
@@ -551,7 +578,10 @@ export function apiRouter() {
     if (!alias) return res.status(404).json({ error: 'not_found' });
     const member = getMember(alias.member_id);
     if (!canEditMember(req, member)) return res.status(403).json({ error: 'forbidden' });
-    res.json({ ok: deleteAlias(alias.id) > 0 });
+    const ok = deleteAlias(alias.id) > 0;
+    if (ok && member) audit(req, member.wing_id, 'removed', 'alias', member.id,
+      `Removed pilot alias "${alias.alias}" from ${member.callsign || member.name}`);
+    res.json({ ok });
   });
 
   // ----- qualifications -----
@@ -679,16 +709,24 @@ export function apiRouter() {
     const qual = getQual(Number(req.params.qualId));
     if (!member || !qual) return res.status(404).json({ error: 'not_found' });
     const b = req.body || {};
-    res.json(setMemberQual(member.id, qual.id, {
+    const result = setMemberQual(member.id, qual.id, {
       status: b.status,
       awarded_at: b.awarded_at ? new Date(b.awarded_at).getTime() : Date.now(),
       expires_at: b.expires_at ? new Date(b.expires_at).getTime() : null,
       notes: str(b.notes, 500),
-    }));
+    });
+    audit(req, member.wing_id, 'set-qual', 'member_qual', member.id,
+      `${member.callsign || member.name}: ${qual.code} → ${b.status || 'qualified'}`);
+    res.json(result);
   });
 
   router.delete('/members/:id/quals/:qualId', requireAdmin, (req, res) => {
-    res.json({ ok: removeMemberQual(Number(req.params.id), Number(req.params.qualId)) > 0 });
+    const member = getMember(Number(req.params.id));
+    const qual = getQual(Number(req.params.qualId));
+    const ok = removeMemberQual(Number(req.params.id), Number(req.params.qualId)) > 0;
+    if (ok && member && qual) audit(req, member.wing_id, 'removed-qual', 'member_qual', member.id,
+      `Removed ${qual.code} from ${member.callsign || member.name}`);
+    res.json({ ok });
   });
 
   // ===== Epic 2: qualification activities + sign-offs + currency =====
@@ -702,24 +740,33 @@ export function apiRouter() {
     if (!qual) return res.status(404).json({ error: 'not_found' });
     const b = req.body || {};
     if (!str(b.name, 200)) return res.status(400).json({ error: 'missing_name' });
-    res.json(createActivity(qual.id, {
+    const activity = createActivity(qual.id, {
       name: str(b.name, 200), group_name: str(b.group_name, 80),
       description: str(b.description, 2000),
       is_currency: !!b.is_currency, sort_order: b.sort_order,
-    }));
+    });
+    audit(req, qual.wing_id, 'created', 'activity', activity.id, `Added activity "${activity.name}" to ${qual.code}`);
+    res.json(activity);
   });
   router.put('/activities/:id', requireAdmin, (req, res) => {
     const a = getActivity(Number(req.params.id));
     if (!a) return res.status(404).json({ error: 'not_found' });
     const b = req.body || {};
-    res.json(updateActivity(a.id, {
+    const updated = updateActivity(a.id, {
       name: str(b.name, 200) || a.name, group_name: str(b.group_name, 80),
       description: str(b.description, 2000),
       is_currency: !!b.is_currency, sort_order: b.sort_order ?? a.sort_order,
-    }));
+    });
+    const wid = wingOf('activity', a.id);
+    if (wid != null) audit(req, wid, 'updated', 'activity', a.id, `Updated activity "${updated.name}"`);
+    res.json(updated);
   });
   router.delete('/activities/:id', requireAdmin, (req, res) => {
-    res.json({ ok: deleteActivity(Number(req.params.id)) > 0 });
+    const a = getActivity(Number(req.params.id));
+    const wid = a ? wingOf('activity', a.id) : null;
+    const ok = deleteActivity(Number(req.params.id)) > 0;
+    if (ok && wid != null) audit(req, wid, 'deleted', 'activity', Number(req.params.id), `Deleted activity "${a.name}"`);
+    res.json({ ok });
   });
 
   // sign-offs (admin/instructor): one per (member, activity)
@@ -1122,9 +1169,12 @@ export function apiRouter() {
     if (!actor.isAdmin && actor.member?.id !== member.id) return res.status(403).json({ error: 'forbidden' });
     const b = req.body || {};
     try {
-      res.json(createLOA(member.id, {
+      const loa = createLOA(member.id, {
         start_at: ms(b.start_at), end_at: ms(b.end_at), reason: str(b.reason, 500),
-      }));
+      });
+      audit(req, member.wing_id, 'created', 'loa', loa.id || member.id,
+        `LOA requested for ${member.callsign || member.name}`);
+      res.json(loa);
     } catch (err) {
       res.status(400).json({ error: err.message || 'bad_request' });
     }
@@ -1133,7 +1183,10 @@ export function apiRouter() {
     const loa = getLOA(Number(req.params.id));
     if (!loa) return res.status(404).json({ error: 'not_found' });
     try {
-      res.json(setLOAStatus(loa.id, req.body?.status, getActor(req).user?.id));
+      const updated = setLOAStatus(loa.id, req.body?.status, getActor(req).user?.id);
+      const wid = wingOf('loa', loa.id);
+      if (wid != null) audit(req, wid, req.body?.status || 'updated', 'loa', loa.id, `LOA ${req.body?.status || 'updated'}`);
+      res.json(updated);
     } catch (err) {
       res.status(400).json({ error: err.message || 'bad_request' });
     }
@@ -1143,7 +1196,10 @@ export function apiRouter() {
     if (!loa) return res.status(404).json({ error: 'not_found' });
     const actor = getActor(req);
     if (!actor.isAdmin && actor.member?.id !== loa.member_id) return res.status(403).json({ error: 'forbidden' });
-    res.json({ ok: deleteLOA(loa.id) > 0 });
+    const wid = wingOf('loa', loa.id);
+    const ok = deleteLOA(loa.id) > 0;
+    if (ok && wid != null) audit(req, wid, 'deleted', 'loa', loa.id, 'LOA removed');
+    res.json({ ok });
   });
   router.get('/members/:id/loas', (req, res) => {
     const member = getMember(Number(req.params.id));
@@ -1189,6 +1245,8 @@ export function apiRouter() {
     if (!wing) return res.status(404).json({ error: 'not_found' });
     try {
       const s = createTrainingSession(wing.id, req.body || {}, getActor(req).user?.id || null);
+      audit(req, wing.id, 'logged', 'training_session', s.id,
+        `Logged ${s.duration_minutes}min training session`);
       res.json(s);
     } catch (err) {
       res.status(400).json({ error: err.message || 'create_failed' });
@@ -1337,13 +1395,18 @@ export function apiRouter() {
     const q = getQual(Number(req.params.id));
     if (!q) return res.status(404).json({ error: 'not_found' });
     try {
-      res.json(createQualTrack(q.id, req.body || {}));
+      const track = createQualTrack(q.id, req.body || {});
+      audit(req, q.wing_id, 'created', 'qual_track', q.id, `Added crew track "${track.label}" to ${q.code}`);
+      res.json(track);
     } catch (err) {
       res.status(400).json({ error: err.message || 'create_failed' });
     }
   });
   router.delete('/qual-tracks/:id', requireAdmin, (req, res) => {
-    res.json({ ok: deleteQualTrack(Number(req.params.id)) > 0 });
+    const wid = wingOf('qual_track', Number(req.params.id));
+    const ok = deleteQualTrack(Number(req.params.id)) > 0;
+    if (ok && wid != null) audit(req, wid, 'deleted', 'qual_track', Number(req.params.id), 'Removed crew track');
+    res.json({ ok });
   });
 
   // ----- Phase 3.1: modex pools -----
@@ -1452,7 +1515,9 @@ export function apiRouter() {
   router.post('/wings/:id/carriers', requireAdmin, (req, res) => {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
-    res.json(createCarrier(wing.id, req.body || {}));
+    const carrier = createCarrier(wing.id, req.body || {});
+    audit(req, wing.id, 'created', 'carrier', carrier.id, `Added carrier ${carrier.name}${carrier.hull ? ` (${carrier.hull})` : ''}`);
+    res.json(carrier);
   });
   router.get('/carriers/:id', (req, res) => {
     const c = getCarrier(Number(req.params.id));
@@ -1462,10 +1527,16 @@ export function apiRouter() {
   router.put('/carriers/:id', requireAdmin, (req, res) => {
     const c = getCarrier(Number(req.params.id));
     if (!c) return res.status(404).json({ error: 'not_found' });
-    res.json(updateCarrier(c.id, req.body || {}));
+    const updated = updateCarrier(c.id, req.body || {});
+    audit(req, c.wing_id, 'updated', 'carrier', c.id, `Updated carrier ${updated.name}`);
+    res.json(updated);
   });
   router.delete('/carriers/:id', requireAdmin, (req, res) => {
-    res.json({ ok: deleteCarrier(Number(req.params.id)) > 0 });
+    const c = getCarrier(Number(req.params.id));
+    if (!c) return res.json({ ok: false });
+    const ok = deleteCarrier(c.id) > 0;
+    if (ok) audit(req, c.wing_id, 'deleted', 'carrier', c.id, `Deleted carrier ${c.name}`);
+    res.json({ ok });
   });
 
   // traps
@@ -1474,13 +1545,18 @@ export function apiRouter() {
     if (!c) return res.status(404).json({ error: 'not_found' });
     try {
       const trap = recordTrap(c.id, req.body || {}, getActor(req).user?.id || null);
+      audit(req, c.wing_id, 'logged', 'trap', trap.id,
+        `Trap on ${c.name}: grade ${trap.grade}${trap.wire ? ` wire ${trap.wire}` : ''}`);
       res.json(trap);
     } catch (err) {
       res.status(400).json({ error: err.message || 'record_failed' });
     }
   });
   router.delete('/traps/:id', requireAdmin, (req, res) => {
-    res.json({ ok: deleteTrap(Number(req.params.id)) > 0 });
+    const wid = wingOf('trap', Number(req.params.id));
+    const ok = deleteTrap(Number(req.params.id)) > 0;
+    if (ok && wid != null) audit(req, wid, 'deleted', 'trap', Number(req.params.id), 'Trap removed');
+    res.json({ ok });
   });
   router.get('/traps/:id', (req, res) => {
     const t = getTrap(Number(req.params.id));
