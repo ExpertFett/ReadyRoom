@@ -1259,7 +1259,11 @@ export function apiRouter() {
       if (!req.body || !req.body.length) return res.status(400).json({ error: 'empty_body' });
       if (req.body.length > MAX_DOC_FILE_BYTES) return res.status(413).json({ error: 'too_large' });
       // Filename comes from X-File-Name header (URL-encoded) or query param.
-      const rawName = decodeURIComponent(req.get('x-file-name') || req.query.filename || 'file');
+      // decodeURIComponent throws on malformed percent-escapes — fall back to
+      // the raw value instead of 500-ing the upload.
+      const rawHeader = req.get('x-file-name') || req.query.filename || 'file';
+      let rawName;
+      try { rawName = decodeURIComponent(rawHeader); } catch { rawName = String(rawHeader); }
       const mime = req.get('x-file-type') || req.get('content-type') || 'application/octet-stream';
       // Drop any existing file before writing the new one.
       if (d.file_path) deleteDocFile(d.file_path);
@@ -1353,13 +1357,20 @@ export function apiRouter() {
     if (!wing) return res.status(404).json({ error: 'not_found' });
     try {
       const p = setModexPool(wing.id, req.params.subdivision, req.body || {});
+      audit(req, wing.id, 'updated', 'modex_pool', wing.id,
+        `Set ${req.params.subdivision} modex range ${p.range_start}-${p.range_end}`);
       res.json(p);
     } catch (err) {
       res.status(400).json({ error: err.message || 'bad_input' });
     }
   });
   router.delete('/wings/:id/modex-pools/:subdivision', requireAdmin, (req, res) => {
-    res.json({ ok: deleteModexPool(Number(req.params.id), req.params.subdivision) > 0 });
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const ok = deleteModexPool(wing.id, req.params.subdivision) > 0;
+    if (ok) audit(req, wing.id, 'deleted', 'modex_pool', wing.id,
+      `Removed ${req.params.subdivision} modex pool`);
+    res.json({ ok });
   });
   // Next-available hint — used inline on Personnel + Squadron pages.
   router.get('/wings/:id/modex-pools/:subdivision/available', (req, res) => {

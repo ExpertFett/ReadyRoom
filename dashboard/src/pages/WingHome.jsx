@@ -34,6 +34,7 @@ export default function WingHome() {
       <Squadrons wing={wing} isAdmin={me.isAdmin} reload={loadWings} />
       <Quals wingId={wing.id} isAdmin={me.isAdmin} />
       <Currency wingId={wing.id} />
+      {me.isAdmin && <ModexPools wingId={wing.id} />}
       {me.isAdmin && <SortieFeed wingId={wing.id} />}
       {me.isAdmin && <Ingest wingId={wing.id} />}
       {me.isAdmin && <DiscordPublish wing={wing} />}
@@ -341,6 +342,113 @@ function DiscordPublish({ wing }) {
           {status && <span className="muted small">{status}</span>}
         </div>
       </form>
+    </section>
+  );
+}
+
+// Modex (side number) allocation per subdivision. Defining a range here powers
+// the "next available" hint when adding pilots, so admins don't have to track
+// which numbers are taken by hand.
+const MODEX_SUBDIVISIONS = [
+  { key: 'main', label: 'Main' },
+  { key: 'ready_reserve', label: 'Ready Reserve' },
+  { key: 'frs', label: 'FRS' },
+  { key: 'candidate', label: 'Candidate' },
+];
+
+function ModexPools({ wingId }) {
+  const [pools, setPools] = useState(null);
+  const [draft, setDraft] = useState({}); // subdivision -> { range_start, range_end, notes }
+  const [avail, setAvail] = useState({}); // subdivision -> { next, count }
+  const [status, setStatus] = useState('');
+
+  const load = async () => {
+    const list = await api.get(`/api/wings/${wingId}/modex-pools`);
+    setPools(list);
+    const byKey = {};
+    for (const p of list) byKey[p.subdivision] = { range_start: p.range_start, range_end: p.range_end, notes: p.notes || '' };
+    setDraft(byKey);
+    // Fetch next-available for each defined pool
+    const a = {};
+    for (const p of list) {
+      try {
+        const r = await api.get(`/api/wings/${wingId}/modex-pools/${p.subdivision}/available`);
+        a[p.subdivision] = { next: r.next, count: r.available?.length || 0 };
+      } catch { /* ignore */ }
+    }
+    setAvail(a);
+  };
+  useEffect(() => { load(); }, [wingId]);
+
+  const setField = (sub, field, val) =>
+    setDraft((d) => ({ ...d, [sub]: { ...(d[sub] || {}), [field]: val } }));
+
+  const save = async (sub) => {
+    const d = draft[sub] || {};
+    if (d.range_start === '' || d.range_end === '' || d.range_start == null || d.range_end == null) {
+      setStatus('Set both a start and end number.');
+      return;
+    }
+    setStatus('Saving…');
+    try {
+      await api.put(`/api/wings/${wingId}/modex-pools/${sub}`, {
+        range_start: Number(d.range_start), range_end: Number(d.range_end), notes: d.notes || null,
+      });
+      setStatus('Saved ✓');
+      load();
+    } catch (e) { setStatus(`Save failed: ${e.message}`); }
+  };
+
+  const clear = async (sub) => {
+    if (!confirm(`Remove the ${sub} modex pool?`)) return;
+    await api.del(`/api/wings/${wingId}/modex-pools/${sub}`);
+    setStatus('Removed');
+    load();
+  };
+
+  if (pools === null) return null;
+
+  return (
+    <section>
+      <h2>Modex pools</h2>
+      <div className="card">
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Allocate side-number ranges per subdivision. When you add a pilot, ReadyRoom
+          suggests the next free number in that subdivision's range.
+        </p>
+        <table>
+          <thead>
+            <tr><th>Subdivision</th><th>Start</th><th>End</th><th>Notes</th><th>Next free</th><th></th></tr>
+          </thead>
+          <tbody>
+            {MODEX_SUBDIVISIONS.map(({ key, label }) => {
+              const d = draft[key] || {};
+              const defined = pools.some((p) => p.subdivision === key);
+              const a = avail[key];
+              return (
+                <tr key={key}>
+                  <td><b>{label}</b></td>
+                  <td><input type="number" style={{ width: 80 }} value={d.range_start ?? ''}
+                    onChange={(e) => setField(key, 'range_start', e.target.value)} placeholder="400" /></td>
+                  <td><input type="number" style={{ width: 80 }} value={d.range_end ?? ''}
+                    onChange={(e) => setField(key, 'range_end', e.target.value)} placeholder="419" /></td>
+                  <td><input style={{ width: 160 }} value={d.notes ?? ''}
+                    onChange={(e) => setField(key, 'notes', e.target.value)} placeholder="optional" /></td>
+                  <td className="small">{a?.next != null ? <b>#{a.next}</b> : '—'}
+                    {a?.count != null && <span className="muted"> ({a.count} free)</span>}</td>
+                  <td>
+                    <div className="row" style={{ gap: 4 }}>
+                      <button className="small primary" onClick={() => save(key)}>Save</button>
+                      {defined && <button className="small danger" onClick={() => clear(key)}>✕</button>}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {status && <p className="muted small" style={{ marginBottom: 0 }}>{status}</p>}
+      </div>
     </section>
   );
 }

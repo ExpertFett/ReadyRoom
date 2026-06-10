@@ -28,10 +28,14 @@ mkdirSync(UPLOADS_ROOT, { recursive: true });
 console.log(`[files] uploads at ${UPLOADS_ROOT}`);
 
 // Sanitize a filename for filesystem safety. Keeps the original extension.
+// Strips path separators / reserved chars, trims surrounding whitespace and
+// dots (Windows rejects trailing dots/spaces), and caps the length.
 function safeName(name) {
   const cleaned = String(name || 'file')
     .replace(/[/\\?%*:|"<>]/g, '_')
-    .slice(0, 120);
+    .replace(/^[\s.]+|[\s.]+$/g, '')
+    .slice(0, 120)
+    .trim();
   return cleaned || 'file';
 }
 
