@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import { useMe } from '../App.jsx';
 
 export default function WingHome() {
-  const { me } = useMe();
+  const { me, reload } = useMe();
   const [wings, setWings] = useState(null);
   const [wing, setWing] = useState(null);
 
@@ -17,7 +17,9 @@ export default function WingHome() {
   useEffect(() => { loadWings(); }, []);
 
   if (wings === null) return <p className="muted">Loading…</p>;
-  if (!wings.length) return <SetupWing isAdmin={me.isAdmin} onCreated={loadWings} />;
+  // Any signed-in user with no wing can stand one up and becomes its admin.
+  // After creation we reload /api/me so their fresh admin role takes effect.
+  if (!wings.length) return <SetupWing onCreated={async () => { await reload(); await loadWings(); }} />;
   if (!wing) return <p className="muted">Loading…</p>;
 
   return (
@@ -39,28 +41,37 @@ export default function WingHome() {
   );
 }
 
-function SetupWing({ isAdmin, onCreated }) {
+function SetupWing({ onCreated }) {
   const [name, setName] = useState('');
   const [tag, setTag] = useState('');
   const [busy, setBusy] = useState(false);
-  if (!isAdmin) return <div className="empty">No wing has been set up yet. Ask an admin to create one.</div>;
+  const [err, setErr] = useState('');
   const submit = async (e) => {
     e.preventDefault();
     if (!name.trim()) return;
-    setBusy(true);
-    try { await api.post('/api/wings', { name, tag }); onCreated(); }
+    setBusy(true); setErr('');
+    try { await api.post('/api/wings', { name, tag }); await onCreated(); }
+    catch (e2) {
+      setErr(e2.data?.error === 'already_in_wing'
+        ? 'You already belong to a wing. Leave it before creating another.'
+        : 'Could not create the wing. Try again.');
+    }
     finally { setBusy(false); }
   };
   return (
     <div className="card" style={{ maxWidth: 440, margin: '40px auto' }}>
       <h2 style={{ marginTop: 0 }}>Set up your wing</h2>
-      <p className="muted small">The wing is the top of the org. You'll add squadrons and members next.</p>
+      <p className="muted small">
+        The wing is the top of the org. You'll become its admin and can add squadrons,
+        qualifications, and members next.
+      </p>
       <form onSubmit={submit}>
         <div className="field"><label>Wing name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Carrier Air Wing One" /></div>
         <div className="field"><label>Tag (optional)</label>
           <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="CVW-1" /></div>
-        <button className="primary" disabled={busy}>Create wing</button>
+        <button className="primary" disabled={busy}>{busy ? 'Creating…' : 'Create wing'}</button>
+        {err && <p className="error" style={{ marginTop: 10 }}>{err}</p>}
       </form>
     </div>
   );

@@ -18,11 +18,10 @@ export default function Dashboard() {
   }, [activeWing]);
 
   if (!activeWing) {
+    // Any signed-in user with no wing can create one and becomes its admin.
     return (
       <div className="empty">
-        No wing set up yet. {me.isAdmin
-          ? <Link to="/wing">Set up your wing →</Link>
-          : 'Ask an admin to create one.'}
+        No wing yet. <Link to="/wing">Set up your wing →</Link>
       </div>
     );
   }

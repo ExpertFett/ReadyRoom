@@ -233,10 +233,41 @@ export function apiRouter() {
     res.json(wings.map((w) => ({ ...w, squadrons: getSquadrons(w.id).length })));
   });
 
-  router.post('/wings', requireAdmin, (req, res) => {
+  // Self-serve wing creation. A root admin can always create wings. Any other
+  // authenticated user may stand up ONE wing IF they don't already belong to a
+  // wing — and they become its first admin. Because members.discord_user_id is
+  // globally unique, this naturally caps a non-root user at a single wing
+  // without extra bookkeeping. This is what lets other squadrons onboard
+  // themselves instead of waiting on the platform owner.
+  router.post('/wings', (req, res) => {
+    const actor = getActor(req);
+    if (!actor.user) return res.status(401).json({ error: 'unauthorized' });
+    if (!actor.root && actor.member) {
+      // Already a member of a wing — can't spin up another.
+      return res.status(403).json({ error: 'already_in_wing' });
+    }
     const name = str(req.body?.name, 120);
     if (!name) return res.status(400).json({ error: 'missing_name' });
-    res.json(createWing({ name, tag: str(req.body?.tag, 32), description: str(req.body?.description, 2000) }));
+    const wing = createWing({
+      name, tag: str(req.body?.tag, 32), description: str(req.body?.description, 2000),
+    });
+    // Non-root creator becomes the wing's admin so they immediately have
+    // access (the /api/wings list is membership-scoped). Root admins already
+    // see every wing, so we don't force a member row on them.
+    if (!actor.root && actor.user.id) {
+      try {
+        createMember(wing.id, {
+          discord_user_id: actor.user.id,
+          callsign: actor.user.username || 'CO',
+          name: actor.user.username || null,
+          app_role: 'admin', billet: 'CO', subdivision: 'main',
+        });
+      } catch (err) {
+        console.warn('[create-wing] owner member link failed:', err.message);
+      }
+    }
+    audit(req, wing.id, 'created', 'wing', wing.id, `Created wing "${wing.name}"`);
+    res.json(wing);
   });
 
   router.get('/wings/:id', (req, res) => {
