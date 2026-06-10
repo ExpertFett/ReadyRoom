@@ -44,6 +44,12 @@ export function startWebServer() {
     app.use(express.static(DIST_DIR));
     app.use((req, res, next) => {
       if (req.method !== 'GET') return next();
+      // API-ish paths that fell through their routers are real 404s — return
+      // JSON, not the SPA shell. Without this, an unmatched GET /api/* came
+      // back as index.html with HTTP 200 and the frontend "succeeded" on HTML.
+      if (/^\/(api|auth|ingest)\//.test(req.path)) {
+        return res.status(404).json({ error: 'not_found' });
+      }
       res.sendFile(join(DIST_DIR, 'index.html'));
     });
   } else {

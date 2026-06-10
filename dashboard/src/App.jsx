@@ -30,6 +30,13 @@ export const useMe = () => useContext(MeContext);
 export default function App() {
   const [me, setMe] = useState(undefined); // undefined = loading, null = logged out
   const [wings, setWings] = useState([]);
+  // Active wing selection persists across reloads. Root admins (and anyone
+  // with multiple wings) need this — without it the UI was locked to wings[0]
+  // and a freshly spawned demo wing was unreachable.
+  const [activeWingId, setActiveWingId] = useState(() => {
+    const v = localStorage.getItem('readyroom.activeWingId');
+    return v ? Number(v) : null;
+  });
   const navigate = useNavigate();
 
   const loadMe = useCallback(async () => {
@@ -61,7 +68,14 @@ export default function App() {
   // etc. come from the comma-separated capabilities field on their member.
   const caps = (me.member?.capabilities || '').split(',').map((c) => c.trim()).filter(Boolean);
 
-  const activeWing = wings[0] || null;
+  // Resolve the active wing: saved selection if it's still in the list,
+  // otherwise the first wing. Falls back gracefully when a wing is deleted.
+  const activeWing = wings.find((w) => w.id === activeWingId) || wings[0] || null;
+  const switchWing = (id) => {
+    setActiveWingId(id);
+    localStorage.setItem('readyroom.activeWingId', String(id));
+    navigate('/');
+  };
   const logout = async () => {
     await api.post('/auth/logout');
     setMe(null);
@@ -86,6 +100,22 @@ export default function App() {
           </nav>
         )}
         <span className="spacer" />
+        {wings.length > 1 && (
+          <select
+            className="wing-switch"
+            value={activeWing?.id || ''}
+            onChange={(e) => switchWing(Number(e.target.value))}
+            title="Switch wing"
+            style={{ width: 'auto', maxWidth: 180, marginRight: 8 }}
+          >
+            {wings.map((w) => {
+              const label = w.tag || w.name;
+              // Disambiguate identical labels (e.g. two spawned demo wings)
+              const dupe = wings.some((o) => o.id !== w.id && (o.tag || o.name) === label);
+              return <option key={w.id} value={w.id}>{dupe ? `${label} #${w.id}` : label}</option>;
+            })}
+          </select>
+        )}
         <div className="role-pills">
           {me.isAdmin && <span className="badge admin">ADMIN</span>}
           {me.role === 'commander' && !me.isAdmin && <span className="badge commander">CO</span>}
