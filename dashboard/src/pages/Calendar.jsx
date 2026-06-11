@@ -7,6 +7,18 @@ const WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const isoDay = (d) => d.toISOString().slice(0, 10);
 
+// Compact local time for calendar chips, e.g. "7:30p" or "9a". Always shows
+// so you can see WHEN an event is right on the month grid, not just its title.
+const evtTime = (ms) => {
+  if (!ms) return '';
+  const d = new Date(ms);
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ap = h < 12 ? 'a' : 'p';
+  h = h % 12 || 12;
+  return m ? `${h}:${String(m).padStart(2, '0')}${ap}` : `${h}${ap}`;
+};
+
 export default function Calendar() {
   const { me, activeWing } = useMe();
   const [cursor, setCursor] = useState(() => {
@@ -69,10 +81,10 @@ export default function Calendar() {
             <div key={i} className={`cal-cell ${inMonth ? '' : 'out'} ${key === today ? 'today' : ''}`}>
               <div className="cal-date">{d.getDate()}</div>
               {list.map((e) => (
-                <Link key={e.id} to={`/events/${e.id}`} className={`cal-evt ${e.kind}`} title={e.title}>
+                <Link key={e.id} to={`/events/${e.id}`} className={`cal-evt ${e.kind}`} title={`${evtTime(e.start_at)} · ${e.title}`}>
                   {e.kind === 'extra_credit' ? '★ ' : ''}
                   {e.discord_message_id && <span title="Posted to Discord" style={{ marginRight: 2 }}>📌</span>}
-                  {e.title}
+                  <span className="cal-evt-time">{evtTime(e.start_at)}</span> {e.title}
                 </Link>
               ))}
             </div>

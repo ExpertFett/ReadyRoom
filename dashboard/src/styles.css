@@ -284,6 +284,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 4px; }
 }
 .cal-evt:hover { text-decoration: none; filter: brightness(1.15); }
 .cal-evt.extra_credit { background: rgba(240, 180, 41, 0.18); border-left-color: #f0b429; }
+.cal-evt-time { font-weight: 700; opacity: 0.7; font-variant-numeric: tabular-nums; }
 
 /* --- stat cards (Metrics) --- */
 .stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
@@ -343,6 +344,15 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 4px; }
 
   /* Footer stacks. */
   .app-footer-inner { flex-direction: column; align-items: flex-start; gap: 6px; }
+
+  /* Month calendar: 7 columns don't fit a phone at desktop sizing, so shrink
+     cells, headers, dates, and event chips. The grid stays a real month grid
+     (7 cols) but compact; event chips keep their leading time + ellipsis. */
+  .cal-grid { margin-top: 8px; }
+  .cal-head { padding: 5px 1px; font-size: 9px; letter-spacing: 0; }
+  .cal-cell { min-height: 56px; padding: 3px 2px 5px; gap: 2px; }
+  .cal-date { font-size: 10px; }
+  .cal-evt { font-size: 9.5px; padding: 1px 3px; border-left-width: 2px; border-radius: 2px; }
 }
 
 /* Very small phones: one KPI tile per row so the big numbers stay legible. */
