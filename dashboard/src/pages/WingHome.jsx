@@ -1,26 +1,28 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
 
 export default function WingHome() {
-  const { me, reload } = useMe();
-  const [wings, setWings] = useState(null);
+  const { me, wings, wingsLoaded, activeWing, reload, reloadWings } = useMe();
   const [wing, setWing] = useState(null);
+  const navigate = useNavigate();
 
-  const loadWings = async () => {
-    const list = await api.get('/api/wings');
-    setWings(list);
-    if (list.length) setWing(await api.get(`/api/wings/${list[0].id}`));
-    else setWing(null);
+  // Show the full detail (incl. squadrons) for whichever wing is selected in
+  // the top-bar switcher — not always wings[0]. Refetch when the selection
+  // changes so the page (and the delete target below) track the dropdown.
+  const loadWing = async () => {
+    if (!activeWing) { setWing(null); return; }
+    try { setWing(await api.get(`/api/wings/${activeWing.id}`)); }
+    catch { setWing(null); }
   };
-  useEffect(() => { loadWings(); }, []);
+  useEffect(() => { loadWing(); }, [activeWing?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (wings === null) return <p className="muted">Loading…</p>;
+  if (!wingsLoaded) return <p className="muted">Loading…</p>;
   // Any signed-in user with no wing can stand one up and becomes its admin.
   // After creation we reload /api/me so their fresh admin role takes effect.
-  if (!wings.length) return <SetupWing onCreated={async () => { await reload(); await loadWings(); }} />;
-  if (!wing) return <p className="muted">Loading…</p>;
+  if (!wings.length) return <SetupWing onCreated={async () => { await reload(); await reloadWings(); }} />;
+  if (!activeWing || !wing) return <p className="muted">Loading…</p>;
 
   return (
     <div>
@@ -31,7 +33,7 @@ export default function WingHome() {
         </div>
       </div>
 
-      <Squadrons wing={wing} isAdmin={me.isAdmin} reload={loadWings} />
+      <Squadrons wing={wing} isAdmin={me.isAdmin} reload={loadWing} />
       <Quals wingId={wing.id} isAdmin={me.isAdmin} />
       <Currency wingId={wing.id} />
       {me.isAdmin && <ModexPools wingId={wing.id} />}
@@ -39,7 +41,49 @@ export default function WingHome() {
       {me.isAdmin && <SuiteConnect />}
       {me.isAdmin && <Ingest wingId={wing.id} />}
       {me.isAdmin && <DiscordPublish wing={wing} />}
+      {me.isAdmin && (
+        <DangerZone
+          wing={wing}
+          onDeleted={async () => { await reloadWings(); await reload(); navigate('/'); }}
+        />
+      )}
     </div>
+  );
+}
+
+// Destructive wing deletion. Admin-only and gated behind a type-to-confirm so
+// a stray click can't wipe a wing — DELETE cascades to the entire roster,
+// quals, events, missions, carriers, traps, and documents.
+function DangerZone({ wing, onDeleted }) {
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const target = wing.tag || wing.name;
+  const armed = confirm.trim() === target;
+  const del = async () => {
+    if (!armed) return;
+    setBusy(true); setErr('');
+    try { await api.del(`/api/wings/${wing.id}`); await onDeleted(); }
+    catch (e) { setErr(e.message || 'delete failed'); setBusy(false); }
+  };
+  return (
+    <section style={{ marginTop: 28 }}>
+      <h2 style={{ color: 'var(--danger)' }}>Danger zone</h2>
+      <div className="card" style={{ borderColor: 'var(--danger)' }}>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Permanently delete <b>{target}</b> and <b>everything in it</b> — squadrons, roster,
+          qualifications, events, missions, carriers, traps, and documents. This cannot be undone.
+        </p>
+        <div className="field" style={{ maxWidth: 280 }}>
+          <label>Type <b>{target}</b> to confirm</label>
+          <input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={target} />
+        </div>
+        <button className="danger" disabled={!armed || busy} onClick={del}>
+          {busy ? 'Deleting…' : `Delete ${target} permanently`}
+        </button>
+        {err && <span className="muted small" style={{ marginLeft: 10, color: 'var(--danger)' }}>{err}</span>}
+      </div>
+    </section>
   );
 }
 

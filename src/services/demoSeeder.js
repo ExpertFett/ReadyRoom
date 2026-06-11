@@ -56,6 +56,7 @@ export function seedDemoWing(owner) {
     name: 'Demo Wing — Carrier Air Wing One',
     tag: 'DEMO-CVW',
     description: 'Demo wing for product showcase. Fully populated roster, quals, events, carrier traps, training sessions, and docs. Delete when finished.',
+    created_by: owner.discordUserId,   // the admin who seeded it owns it (shows in their switcher)
   });
   const wingId = wing.id;
 

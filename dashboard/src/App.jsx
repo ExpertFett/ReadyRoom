@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { Routes, Route, Link, NavLink, useNavigate } from 'react-router-dom';
 import { api } from './api.js';
 import Landing from './pages/Landing.jsx';
@@ -30,6 +30,7 @@ export const useMe = () => useContext(MeContext);
 export default function App() {
   const [me, setMe] = useState(undefined); // undefined = loading, null = logged out
   const [wings, setWings] = useState([]);
+  const [wingsLoaded, setWingsLoaded] = useState(false); // false until /api/wings first resolves
   // Active wing selection persists across reloads. Root admins (and anyone
   // with multiple wings) need this — without it the UI was locked to wings[0]
   // and a freshly spawned demo wing was unreachable.
@@ -52,11 +53,29 @@ export default function App() {
       setWings(await api.get('/api/wings'));
     } catch {
       setWings([]);
+    } finally {
+      setWingsLoaded(true);
     }
   }, []);
 
   useEffect(() => { loadMe(); }, [loadMe]);
   useEffect(() => { if (me) loadWings(); }, [me, loadWings]);
+
+  // The wings to actually offer in the switcher. A platform/root admin can
+  // technically receive every tenant's wing from /api/wings; curate that down
+  // to wings they OWN (created_by) or are a roster member of, so they don't
+  // see other squadrons' wings cluttering their dropdown. Safety net: if that
+  // filter would hide everything (e.g. ownership not yet backfilled), fall back
+  // to the full list so the user is never locked out of their own data.
+  // NOTE: declared before the early returns below — Hooks must run every render.
+  const myWings = useMemo(() => {
+    if (!me?.user || !wings.length) return wings;
+    const uid = String(me.user.id);
+    const mine = wings.filter(
+      (w) => String(w.created_by) === uid || (me.member && me.member.wing_id === w.id),
+    );
+    return mine.length ? mine : wings;
+  }, [wings, me]);
 
   if (me === undefined) {
     return <div className="login-wrap"><div className="muted">Loading…</div></div>;
@@ -68,9 +87,9 @@ export default function App() {
   // etc. come from the comma-separated capabilities field on their member.
   const caps = (me.member?.capabilities || '').split(',').map((c) => c.trim()).filter(Boolean);
 
-  // Resolve the active wing: saved selection if it's still in the list,
-  // otherwise the first wing. Falls back gracefully when a wing is deleted.
-  const activeWing = wings.find((w) => w.id === activeWingId) || wings[0] || null;
+  // Resolve the active wing: saved selection if it's still in my list,
+  // otherwise my first wing. Falls back gracefully when a wing is deleted.
+  const activeWing = myWings.find((w) => w.id === activeWingId) || myWings[0] || null;
   const switchWing = (id) => {
     setActiveWingId(id);
     localStorage.setItem('readyroom.activeWingId', String(id));
@@ -83,7 +102,7 @@ export default function App() {
   };
 
   return (
-    <MeContext.Provider value={{ me, reload: loadMe, wings, activeWing, reloadWings: loadWings }}>
+    <MeContext.Provider value={{ me, reload: loadMe, wings, wingsLoaded, activeWing, reloadWings: loadWings }}>
       <header className="topbar">
         <Link to="/" className="brand" aria-label="ReadyRoom"><img src="/logo.png" alt="ReadyRoom" className="brand-logo" /></Link>
         {activeWing && (
@@ -100,7 +119,7 @@ export default function App() {
           </nav>
         )}
         <span className="spacer" />
-        {wings.length > 1 && (
+        {myWings.length > 1 && (
           <select
             className="wing-switch"
             value={activeWing?.id || ''}
@@ -108,10 +127,10 @@ export default function App() {
             title="Switch wing"
             style={{ width: 'auto', maxWidth: 180, marginRight: 8 }}
           >
-            {wings.map((w) => {
+            {myWings.map((w) => {
               const label = w.tag || w.name;
               // Disambiguate identical labels (e.g. two spawned demo wings)
-              const dupe = wings.some((o) => o.id !== w.id && (o.tag || o.name) === label);
+              const dupe = myWings.some((o) => o.id !== w.id && (o.tag || o.name) === label);
               return <option key={w.id} value={w.id}>{dupe ? `${label} #${w.id}` : label}</option>;
             })}
           </select>

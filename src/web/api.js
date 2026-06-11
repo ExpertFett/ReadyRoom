@@ -250,6 +250,7 @@ export function apiRouter() {
     if (!name) return res.status(400).json({ error: 'missing_name' });
     const wing = createWing({
       name, tag: str(req.body?.tag, 32), description: str(req.body?.description, 2000),
+      created_by: actor.user.id,   // owner — lets the switcher show them this wing
     });
     // Non-root creator becomes the wing's admin so they immediately have
     // access (the /api/wings list is membership-scoped). Root admins already

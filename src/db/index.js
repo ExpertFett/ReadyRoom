@@ -135,6 +135,21 @@ ensureColumn('wings', 'ops_bot_url', 'TEXT');     // base URL of the Ops Bot (e.
 ensureColumn('wings', 'ops_bot_token', 'TEXT');   // per-guild outbound token revealed by the Ops Bot dashboard
 ensureColumn('wings', 'discord_paused', 'INTEGER NOT NULL DEFAULT 0'); // 1 = skip auto-publish on create/edit/delete
 
+// --- Wing ownership (so the switcher shows you YOUR wings, not every tenant's) ---
+// created_by = Discord user id of the wing's owner. Set on creation and in the
+// demo seeder. Backfill existing rows from each wing's first admin member so
+// pre-existing wings get an owner too. Used by the frontend to curate the wing
+// switcher for platform/root admins who can technically see every wing.
+ensureColumn('wings', 'created_by', 'TEXT');
+db.exec(`
+  UPDATE wings SET created_by = (
+    SELECT m.discord_user_id FROM members m
+    WHERE m.wing_id = wings.id AND m.app_role = 'admin' AND m.discord_user_id IS NOT NULL
+    ORDER BY m.id ASC LIMIT 1
+  )
+  WHERE created_by IS NULL
+`);
+
 // --- Phase 3.3: multi-crew qualification tracks ---
 // Quals can optionally have crew-position tracks (e.g. F-14B IQT has pilot
 // and RIO tracks). A qual with 0 tracks defined is treated as single-seat.
@@ -202,7 +217,7 @@ const safeParse = (s, fallback) => {
 // Wings
 // ---------------------------------------------------------------------------
 const insertWing = db.prepare(
-  'INSERT INTO wings (name, tag, description, created_at) VALUES (?, ?, ?, ?)'
+  'INSERT INTO wings (name, tag, description, created_at, created_by) VALUES (?, ?, ?, ?, ?)'
 );
 const selectWings = db.prepare('SELECT * FROM wings ORDER BY id ASC');
 const selectWing = db.prepare('SELECT * FROM wings WHERE id = ?');
@@ -213,8 +228,8 @@ const deleteWingStmt = db.prepare('DELETE FROM wings WHERE id = ?');
 const selectWingByToken = db.prepare('SELECT * FROM wings WHERE ingest_token = ?');
 const setWingTokenStmt = db.prepare('UPDATE wings SET ingest_token = ? WHERE id = ?');
 
-export function createWing({ name, tag, description }) {
-  const info = insertWing.run(name, tag ?? null, description ?? null, Date.now());
+export function createWing({ name, tag, description, created_by = null }) {
+  const info = insertWing.run(name, tag ?? null, description ?? null, Date.now(), created_by ?? null);
   return getWing(Number(info.lastInsertRowid));
 }
 export function getWings() {
