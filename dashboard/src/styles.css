@@ -298,3 +298,54 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 4px; }
 .badge.att-present, .badge.att-extra_credit { color: var(--accent-2); border-color: var(--accent-2); }
 .badge.att-excused { color: var(--warn); border-color: var(--warn); }
 .badge.att-ua, .badge.att-absent { color: var(--danger); border-color: var(--danger); }
+
+/* ===================================================================
+   Mobile / narrow-screen support (added for squadron members on phones)
+   The app was desktop-only — 9 nav links, wide matrix tables, and
+   two-column rows all overflowed on a phone. These rules keep every
+   page usable down to ~360px.
+   =================================================================== */
+@media (max-width: 720px) {
+  /* Top bar: brand + actions stay on row 1; the nav drops to its own
+     full-width, horizontally-scrollable strip below. */
+  .topbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .brand-logo { height: 24px; }
+  .topbar .who { display: none; }              /* identity lives in the footer */
+  .topbar .role-pills { max-width: none; margin-right: 0; }
+  .wing-switch { max-width: 130px; }
+  .nav {
+    order: 99;                                  /* wrap to the last line */
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+  .nav a { white-space: nowrap; flex: 0 0 auto; }
+
+  .container { padding: 14px 12px 80px; }
+  h1 { font-size: 19px; }
+  h2 { font-size: 16px; }
+
+  /* Two-column layouts collapse to a single column. */
+  .row > section,
+  .row > div { flex: 1 1 100% !important; min-width: 0; }
+  .between { flex-wrap: wrap; }
+
+  /* Wide tables (roster, training board, bulk migration, currency,
+     audit log) scroll horizontally inside their card instead of
+     blowing out the viewport. */
+  .card { overflow-x: auto; }
+
+  /* KPI tiles: two per row on phones. */
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Footer stacks. */
+  .app-footer-inner { flex-direction: column; align-items: flex-start; gap: 6px; }
+}
+
+/* Very small phones: one KPI tile per row so the big numbers stay legible. */
+@media (max-width: 400px) {
+  .kpi-grid { grid-template-columns: 1fr; }
+}
