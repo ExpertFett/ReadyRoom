@@ -468,7 +468,15 @@ export function apiRouter() {
   router.get('/members', (req, res) => {
     const squadronId = Number(req.query.squadron_id);
     const wingId = Number(req.query.wing_id);
-    if (squadronId) return res.json(getMembersBySquadron(squadronId));
+    // SECURITY: ?squadron_id= is neither a wing_id nor a /members/:id path, so
+    // it slips past BOTH access middlewares above. Guard it explicitly via the
+    // squadron's wing — otherwise a user in Wing A could list any Wing B
+    // squadron's roster (names/callsigns/modex/ranks). The ?wing_id= branch is
+    // already covered by the wing-path middleware.
+    if (squadronId) {
+      if (denyResource(req, res, 'squadron', squadronId)) return;
+      return res.json(getMembersBySquadron(squadronId));
+    }
     if (wingId) return res.json(getMembersByWing(wingId));
     res.status(400).json({ error: 'missing_filter' });
   });
