@@ -36,6 +36,7 @@ export default function WingHome() {
       <Currency wingId={wing.id} />
       {me.isAdmin && <ModexPools wingId={wing.id} />}
       {me.isAdmin && <SortieFeed wingId={wing.id} />}
+      {me.isAdmin && <SuiteConnect />}
       {me.isAdmin && <Ingest wingId={wing.id} />}
       {me.isAdmin && <DiscordPublish wing={wing} />}
     </div>
@@ -230,6 +231,41 @@ function SortieFeed({ wingId }) {
   );
 }
 
+// Plain-language overview of how Ready Room links to the rest of the suite.
+// Testers said "linking the bots is sort of confusing" — the two integrations
+// below point in OPPOSITE directions and use different jargon, so this card
+// frames them before the user hits the forms.
+function SuiteConnect() {
+  return (
+    <section>
+      <h2>Connect the suite <span className="muted small" style={{ fontWeight: 400 }}>· optional · admin</span></h2>
+      <div className="card" style={{ marginBottom: 10 }}>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Ready Room works fine on its own. These two links just let data flow to and from the rest of the
+          DCS:OPT suite — they're independent, so set up either, both, or neither.
+        </p>
+        <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+          <div className="card" style={{ flex: '1 1 260px', margin: 0 }}>
+            <div className="small" style={{ fontWeight: 600, marginBottom: 4 }}>① DCS&nbsp;→&nbsp;Ready Room</div>
+            <div className="muted small">
+              Your DCS server posts flight data here so <b>hours &amp; carrier traps auto-fill</b> — no manual
+              logging. Set it up under <b>Sortie ingest</b> just below: reveal the URL, paste it into your DCS
+              hook once.
+            </div>
+          </div>
+          <div className="card" style={{ flex: '1 1 260px', margin: 0 }}>
+            <div className="small" style={{ fontWeight: 600, marginBottom: 4 }}>② Ready Room&nbsp;→&nbsp;Ops Bot&nbsp;→&nbsp;Discord</div>
+            <div className="muted small">
+              When you schedule an event here, Ops Bot <b>posts it to your Discord</b> events channel. Set it up
+              under <b>Discord publish</b> below: paste the Ops Bot URL + token, then <b>Test connection</b>.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // The canonical hosted Ops Bot URL — prefilled so 99% of users only need to
 // paste the outbound token. Self-hosters override the URL field manually.
 const CANONICAL_OPS_BOT_URL = 'https://dcsoptbot-production-0c4b.up.railway.app';
@@ -297,7 +333,9 @@ function DiscordPublish({ wing }) {
   const stateLabel = !wired ? 'not configured' : paused ? 'paused' : 'active';
   return (
     <section>
-      <h2>Discord publish <span className={`badge ${stateKind}`} style={{ marginLeft: 8, fontSize: 11 }}>{stateLabel}</span></h2>
+      <h2>Discord publish
+        <span className="badge reserve" style={{ marginLeft: 8, fontSize: 11 }}>② Ready Room → Discord</span>
+        <span className={`badge ${stateKind}`} style={{ marginLeft: 6, fontSize: 11 }}>{stateLabel}</span></h2>
 
       {wired && discordStatus && (
         <div className="card" style={{ marginBottom: 10, padding: 12 }}>
@@ -326,9 +364,10 @@ function DiscordPublish({ wing }) {
 
       <form className="card" onSubmit={save}>
         <p className="muted small" style={{ marginTop: 0 }}>
-          When you create an event here, drop a Discord embed in your squadron's events channel via Ops Bot.
-          Both fields below are <b>filled in from the Ops Bot dashboard</b> →{' '}
-          <b>DCS Server → ReadyRoom integration → Inbound</b>. Click <b>Test connection</b> after saving to confirm it's wired.
+          When you schedule an event here, Ops Bot posts a Discord embed to your squadron's events channel.
+          Get both values from the <b>Ops Bot dashboard → DCS Server → ReadyRoom integration → Inbound</b> tab.
+          (It's filed under <i>"Inbound"</i> there because it's the token Ops Bot accepts <i>from</i> Ready Room —
+          same token, the two apps just name their ends differently.) <b>Save</b>, then <b>Test connection</b> to confirm it's wired.
         </p>
         <div className="field"><label>Ops Bot URL <span className="muted small">(prefilled to the official deploy — change only if self-hosting)</span></label>
           <input value={f.ops_bot_url} onChange={(e) => setF({ ...f, ops_bot_url: e.target.value })}
@@ -461,10 +500,12 @@ function Ingest({ wingId }) {
   const reveal = async () => setUrl((await api.get(`/api/wings/${wingId}/ingest`)).ingest_url);
   return (
     <section>
-      <h2>Sortie ingest</h2>
+      <h2>Sortie ingest <span className="badge reserve" style={{ marginLeft: 8, fontSize: 11 }}>① DCS → Ready Room</span></h2>
       <div className="card">
         <p className="muted small" style={{ marginTop: 0 }}>
-          POST sortie batches here from the DCS hook (or a VectorBot mirror). Keep this token secret.
+          Point your DCS hook (or a VectorBot mirror) at this URL — it POSTs each sortie so <b>flight hours and
+          carrier traps fill in automatically</b>. The URL has a secret token baked in, so treat it like a
+          password; reveal it only when you're ready to paste it into the hook.
         </p>
         {url
           ? <code style={{ wordBreak: 'break-all' }}>{url}</code>
