@@ -368,14 +368,17 @@ function ModexPools({ wingId }) {
     const byKey = {};
     for (const p of list) byKey[p.subdivision] = { range_start: p.range_start, range_end: p.range_end, notes: p.notes || '' };
     setDraft(byKey);
-    // Fetch next-available for each defined pool
+    // Fetch next-available for every defined pool in parallel — one round-trip
+    // wall-clock instead of one-per-subdivision in sequence (N+1). Matters on
+    // the EU server: 4 pools went from ~4×RTT to 1×RTT. Each has its own
+    // try/catch so one failure doesn't drop the rest.
     const a = {};
-    for (const p of list) {
+    await Promise.all(list.map(async (p) => {
       try {
         const r = await api.get(`/api/wings/${wingId}/modex-pools/${p.subdivision}/available`);
         a[p.subdivision] = { next: r.next, count: r.available?.length || 0 };
       } catch { /* ignore */ }
-    }
+    }));
     setAvail(a);
   };
   useEffect(() => { load(); }, [wingId]);

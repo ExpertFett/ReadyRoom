@@ -17,10 +17,13 @@ export default function MemberDetail() {
   const [trapData, setTrapData] = useState(null);
 
   const load = async () => {
+    // Traps only need the member id from the URL, so fire it immediately —
+    // it then overlaps the member→quals chain instead of waiting behind it
+    // (saves a round-trip on the EU server). Quals still needs member.wing_id.
+    api.get(`/api/members/${id}/traps`).then(setTrapData).catch(() => setTrapData(null));
     const member = await api.get(`/api/members/${id}`);
     setM(member);
     setQuals(await api.get(`/api/quals?wing_id=${member.wing_id}`));
-    api.get(`/api/members/${id}/traps`).then(setTrapData).catch(() => setTrapData(null));
   };
   useEffect(() => { load(); }, [id]);
 
