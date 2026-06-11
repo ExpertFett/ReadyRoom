@@ -88,7 +88,12 @@ function CreateMission({ wing, onDone }) {
     if (!f.name.trim()) return;
     setBusy(true);
     try {
-      const m = await api.post('/api/missions', { wing_id: wing.id, ...f });
+      const m = await api.post('/api/missions', {
+        wing_id: wing.id, ...f,
+        // Convert in the user's TZ — server runs UTC and would otherwise
+        // shift the time by the user's offset (see Calendar create event).
+        start_at: f.start_at ? new Date(f.start_at).getTime() : null,
+      });
       onDone();
       navigate(`/missions/${m.id}`);
     } finally { setBusy(false); }

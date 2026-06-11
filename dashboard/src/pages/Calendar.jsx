@@ -101,7 +101,15 @@ function CreateEvent({ wing, onDone }) {
   const submit = async (e) => {
     e.preventDefault();
     if (!f.title.trim() || !f.start_at) return;
-    const ev = await api.post('/api/events', { wing_id: wing.id, ...f, squadron_id: f.squadron_id ? Number(f.squadron_id) : null });
+    const ev = await api.post('/api/events', {
+      wing_id: wing.id, ...f,
+      // Convert the datetime-local string to epoch ms HERE, in the user's
+      // timezone. If we sent the raw "2026-06-10T19:30" string, the server
+      // (UTC on Railway) would parse it as UTC and shift the event by the
+      // user's offset (e.g. 7:30pm MDT shown back as 1:30pm).
+      start_at: f.start_at ? new Date(f.start_at).getTime() : null,
+      squadron_id: f.squadron_id ? Number(f.squadron_id) : null,
+    });
     onDone();
     navigate(`/events/${ev.id}`);
   };

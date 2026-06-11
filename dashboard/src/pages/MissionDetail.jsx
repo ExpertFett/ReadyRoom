@@ -72,7 +72,13 @@ function EditMission({ m, onDone }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const save = async (e) => {
     e.preventDefault();
-    await api.put(`/api/missions/${m.id}`, f);
+    // f.start_at is a local datetime-local string (from toLocalInput). Convert
+    // it back to epoch ms in the user's TZ — sending the raw string would let
+    // the UTC server reparse it and shift the time (see Calendar create event).
+    await api.put(`/api/missions/${m.id}`, {
+      ...f,
+      start_at: f.start_at ? new Date(f.start_at).getTime() : null,
+    });
     onDone();
   };
   return (
