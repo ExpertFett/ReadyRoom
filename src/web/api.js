@@ -13,7 +13,7 @@ import {
   getModexPools, setModexPool, deleteModexPool, getAvailableModex,
   getQualTracks, createQualTrack, deleteQualTrack,
   enrollPilot, unenrollPilot, getEnrollees,
-  setMemberQual, getMemberQuals, removeMemberQual,
+  setMemberQual, getMemberQuals, removeMemberQual, memberHoldsQual,
   getRecentSorties, getMemberSorties, getUnmatchedAliases,
 } from '../db/index.js';
 import {
@@ -41,6 +41,8 @@ import {
   markAttendance, clearAttendance, getEventAttendance, getEventRoster,
   createLOA, getLOA, setLOAStatus, deleteLOA, getUpcomingLOAs, getMemberLOAs,
   getAttendanceMetrics, getAttendanceTimeseries, getPilotPerformance, setEventDiscord,
+  setEventSignup, removeEventSignup, removeAllEventSignupsForUser, getEventSignups, countEventRoleSignups,
+  claimEventSlot,
 } from '../db/events.js';
 import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
 import {
@@ -161,6 +163,23 @@ export function apiRouter() {
     logAction({
       wing_id: wingId, actor: getActor(req).user,
       action, entity_type, entity_id, summary, detail,
+    });
+  };
+
+  // Push the current event roster to the Ops Bot panel so site-originated
+  // sign-up changes reflect on the Discord message. No-op if the event isn't
+  // wired to a published panel. Fire-and-forget; never blocks the response.
+  const pushSignupsToOpsBot = (eventId) => {
+    const ev = getEvent(eventId);
+    if (!ev || !ev.discord_message_id) return;
+    const wing = getWing(ev.wing_id);
+    if (!wing?.ops_bot_url || !wing?.ops_bot_token || wing.discord_paused) return;
+    opsbotEditEvent(wing, ev.discord_message_id, {
+      readyroom_event_id: ev.id,
+      title: ev.title, description: ev.description, kind: ev.kind,
+      start_at: ev.start_at, roles: ev.roles, taskings: ev.taskings,
+      signups: getEventSignups(ev.id),
+      url: `${getBaseUrl()}/events/${ev.id}`,
     });
   };
 
@@ -1087,16 +1106,21 @@ export function apiRouter() {
       title: str(b.title, 200), description: str(b.description, 8000),
       kind: b.kind, start_at: start, end_at: ms(b.end_at),
       multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
+      roles: b.roles, taskings: b.taskings,
     }, getActor(req).user?.id || null);
 
-    // Fire-and-forget: drop a Discord embed via Ops Bot if the wing is wired up.
+    // Fire-and-forget: publish to Discord via Ops Bot if the wing is wired up.
+    // Sends the flight/slot roles so the bot can render its full sign-up panel.
     const wing = getWing(wingId);
     if (wing.ops_bot_url && wing.ops_bot_token && !wing.discord_paused) {
       opsbotPublishEvent(wing, {
+        readyroom_event_id: event.id,
         title: event.title,
         description: event.description,
         kind: event.kind,
         start_at: event.start_at,
+        roles: event.roles,
+        taskings: event.taskings,
         url: `${getBaseUrl()}/events/${event.id}`,
       }).then((r) => { if (r) setEventDiscord(event.id, r.channel_id, r.message_id); });
     }
@@ -1108,7 +1132,48 @@ export function apiRouter() {
   router.get('/events/:id', (req, res) => {
     const e = getEvent(Number(req.params.id));
     if (!e) return res.status(404).json({ error: 'not_found' });
-    res.json({ ...e, roster: getEventRoster(e.id), attendance: getEventAttendance(e.id) });
+    res.json({ ...e, roster: getEventRoster(e.id), attendance: getEventAttendance(e.id), signups: getEventSignups(e.id) });
+  });
+
+  // Sign the current user up for a flight slot (or toggle off). Site side of the
+  // two-way sync — mirrors the Ops Bot's claim/withdraw. The signer is keyed by
+  // their Discord id (the cross-system identity); we resolve their roster member
+  // when one exists. Pushes the change to the Ops Bot panel if the event is wired.
+  router.post('/events/:id/signups', (req, res) => {
+    const e = getEvent(Number(req.params.id));
+    if (!e) return res.status(404).json({ error: 'not_found' });
+    const actor = getActor(req);
+    if (!actor.user?.id) return res.status(401).json({ error: 'auth_required' });
+    if (!assertWingAccess(req, e.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    const roleLabel = str(req.body?.role_label, 80);
+    const role = (e.roles || []).find((r) => r.label === roleLabel);
+    if (!role) return res.status(400).json({ error: 'unknown_role' });
+
+    // Qual gate: if the slot requires a qual, the signer's member must hold it.
+    if (role.qual && actor.member && !memberHoldsQual(actor.member.id, role.qual)) {
+      return res.status(403).json({ error: 'qual_required', qual: role.qual });
+    }
+
+    const result = claimEventSlot(e, {
+      discord_user_id: actor.user.id, member_id: actor.member?.id || null,
+      display_name: actor.member?.callsign || actor.user.username || null,
+      role_label: roleLabel, source: 'site',
+    });
+    if (result.error === 'slot_full') return res.status(409).json({ error: 'slot_full' });
+    pushSignupsToOpsBot(e.id); // reflect on the Discord panel (no-op if unwired)
+    res.json({ ok: true, signups: getEventSignups(e.id) });
+  });
+
+  // Withdraw the current user from all slots on this event.
+  router.delete('/events/:id/signups', (req, res) => {
+    const e = getEvent(Number(req.params.id));
+    if (!e) return res.status(404).json({ error: 'not_found' });
+    const actor = getActor(req);
+    if (!actor.user?.id) return res.status(401).json({ error: 'auth_required' });
+    if (!assertWingAccess(req, e.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    removeAllEventSignupsForUser(e.id, actor.user.id);
+    pushSignupsToOpsBot(e.id);
+    res.json({ ok: true, signups: getEventSignups(e.id) });
   });
 
   router.put('/events/:id', requireAdmin, (req, res) => {
@@ -1120,13 +1185,16 @@ export function apiRouter() {
       title: str(b.title, 200) || e.title, description: str(b.description, 8000),
       kind: b.kind ?? e.kind, start_at: ms(b.start_at) ?? e.start_at, end_at: ms(b.end_at),
       multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
+      roles: b.roles ?? e.roles, taskings: b.taskings ?? e.taskings,
     });
-    // Fire-and-forget: edit the Discord embed if we have one wired.
+    // Fire-and-forget: edit the Discord panel if we have one wired.
     const wing = getWing(updated.wing_id);
     if (wing?.ops_bot_url && wing?.ops_bot_token && !wing?.discord_paused && updated.discord_message_id) {
       opsbotEditEvent(wing, updated.discord_message_id, {
+        readyroom_event_id: updated.id,
         title: updated.title, description: updated.description, kind: updated.kind,
-        start_at: updated.start_at, url: `${getBaseUrl()}/events/${updated.id}`,
+        start_at: updated.start_at, roles: updated.roles, taskings: updated.taskings,
+        url: `${getBaseUrl()}/events/${updated.id}`,
       });
     }
     audit(req, updated.wing_id, 'updated', 'event', updated.id, `Event updated: ${updated.title}`);

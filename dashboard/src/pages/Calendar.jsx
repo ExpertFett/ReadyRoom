@@ -109,6 +109,7 @@ function CreateEvent({ wing, onDone }) {
   const navigate = useNavigate();
   const [squadrons, setSquadrons] = useState([]);
   const [f, setF] = useState({ title: '', kind: 'squadron', start_at: '', squadron_id: '', description: '', track_attendance: true });
+  const [flights, setFlights] = useState([]); // [{ name, tasking, seats, qual }]
   useEffect(() => { api.get(`/api/squadrons?wing_id=${wing.id}`).then(setSquadrons); }, [wing.id]);
   const submit = async (e) => {
     e.preventDefault();
@@ -121,6 +122,7 @@ function CreateEvent({ wing, onDone }) {
       // user's offset (e.g. 7:30pm MDT shown back as 1:30pm).
       start_at: f.start_at ? new Date(f.start_at).getTime() : null,
       squadron_id: f.squadron_id ? Number(f.squadron_id) : null,
+      ...flightsToRoles(flights),
     });
     onDone();
     navigate(`/events/${ev.id}`);
@@ -151,11 +153,59 @@ function CreateEvent({ wing, onDone }) {
           </select></div>
       </div>
       <div className="field"><label>Description</label><textarea rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="Objectives, notes…" /></div>
+
+      <FlightsEditor flights={flights} setFlights={setFlights} />
+
       <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <input type="checkbox" style={{ width: 'auto' }} checked={f.track_attendance} onChange={(e) => setF({ ...f, track_attendance: e.target.checked })} />
         Track attendance
       </label>
-      <button className="primary" style={{ marginTop: 10 }}>Create &amp; mark attendance →</button>
+      <button className="primary" style={{ marginTop: 10 }}>Create event →</button>
     </form>
+  );
+}
+
+// Convert the editor's flight rows into the API's roles[] + taskings{} shape.
+// Each flight expands to `seats` uniquely-labelled slots ("Spear 1", "Spear 2")
+// so sign-up keys never collide; the flight-level qual gates every seat.
+function flightsToRoles(flights) {
+  const roles = [];
+  const taskings = {};
+  for (const fl of flights) {
+    const name = (fl.name || '').trim();
+    if (!name) continue;
+    if ((fl.tasking || '').trim()) taskings[name] = fl.tasking.trim();
+    const seats = Math.max(1, Math.min(20, Number(fl.seats) || 1));
+    for (let i = 1; i <= seats; i++) {
+      roles.push({ label: `${name} ${i}`, group: name, limit: 1, qual: (fl.qual || '').trim() || null });
+    }
+  }
+  return { roles, taskings };
+}
+
+// Optional flight/slot editor. Define flights (e.g. "Spear", SEAD, 4 seats) and
+// the event publishes to Discord as a full sign-up panel with one button per
+// seat. Leave empty for a plain event with no sign-up slots.
+function FlightsEditor({ flights, setFlights }) {
+  const add = () => setFlights([...flights, { name: '', tasking: '', seats: 2, qual: '' }]);
+  const set = (i, k, v) => setFlights(flights.map((fl, j) => (j === i ? { ...fl, [k]: v } : fl)));
+  const remove = (i) => setFlights(flights.filter((_, j) => j !== i));
+  const totalSeats = flights.reduce((n, fl) => n + (fl.name.trim() ? Math.max(1, Number(fl.seats) || 1) : 0), 0);
+  return (
+    <div className="field">
+      <label>Flights &amp; sign-up slots <span className="muted small">(optional — adds Discord sign-up buttons)</span></label>
+      {flights.length === 0 && <p className="muted small" style={{ margin: '2px 0 6px' }}>No flights. Add one to give the event sign-up slots (pilots claim seats here and in Discord).</p>}
+      {flights.map((fl, i) => (
+        <div key={i} className="row" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input style={{ flex: '1 1 110px' }} value={fl.name} onChange={(e) => set(i, 'name', e.target.value)} placeholder="Flight (Spear)" />
+          <input style={{ flex: '1 1 100px' }} value={fl.tasking} onChange={(e) => set(i, 'tasking', e.target.value)} placeholder="Tasking (SEAD)" />
+          <input style={{ width: 70 }} type="number" min="1" max="20" value={fl.seats} onChange={(e) => set(i, 'seats', e.target.value)} title="Seats" />
+          <input style={{ flex: '1 1 110px' }} value={fl.qual} onChange={(e) => set(i, 'qual', e.target.value)} placeholder="Req. qual (opt)" />
+          <button type="button" className="small danger" onClick={() => remove(i)}>×</button>
+        </div>
+      ))}
+      <button type="button" className="small" onClick={add}>+ Add flight</button>
+      {totalSeats > 0 && <span className="muted small" style={{ marginLeft: 10 }}>{totalSeats} seat{totalSeats === 1 ? '' : 's'} across {flights.filter((fl) => fl.name.trim()).length} flight(s)</span>}
+    </div>
   );
 }

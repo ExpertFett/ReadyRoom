@@ -1,4 +1,4 @@
-import db from './index.js';
+import db, { ensureColumn } from './index.js';
 
 // --- schema -------------------------------------------------------------
 db.exec(`
@@ -40,6 +40,25 @@ db.exec(`
     PRIMARY KEY (event_id, squadron_id)
   );
 
+  -- Flight/slot sign-ups for an event (mirrors the Ops Bot's signup model so
+  -- the two stay in sync). A signer is identified by their Discord user id —
+  -- the cross-system key. member_id is the resolved roster member when known
+  -- (null = a Discord user not on the roster, i.e. a guest). source records
+  -- which side the signup came from so we don't echo it back into a loop.
+  CREATE TABLE IF NOT EXISTS event_signups (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id        INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    role_label      TEXT NOT NULL,
+    discord_user_id TEXT NOT NULL,
+    member_id       INTEGER REFERENCES members(id) ON DELETE SET NULL,
+    display_name    TEXT,
+    source          TEXT NOT NULL DEFAULT 'site',  -- site | discord
+    created_at      INTEGER NOT NULL,
+    UNIQUE (event_id, role_label, discord_user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_evt_signup_event ON event_signups (event_id);
+  CREATE INDEX IF NOT EXISTS idx_evt_signup_member ON event_signups (member_id);
+
   CREATE TABLE IF NOT EXISTS loa_requests (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     member_id   INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
@@ -55,6 +74,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_loa_member ON loa_requests (member_id, start_at);
 `);
 
+// Flight/slot definitions for the event, stored as JSON to match the Ops Bot's
+// event format for a clean pass-through on publish:
+//   roles    = [{ label, group, limit, qual, emoji }]  (one entry per slot)
+//   taskings = { "<flight/group name>": "STRIKE" | "SEAD" | ... }
+ensureColumn('events', 'roles', 'TEXT');
+ensureColumn('events', 'taskings', 'TEXT');
+
 const EVENT_KINDS = ['squadron', 'extra_credit'];
 const ATTEND_STATUS = ['present', 'absent', 'excused', 'extra_credit', 'ua'];
 const LOA_STATUS = ['requested', 'approved', 'denied'];
@@ -62,17 +88,45 @@ const LOA_STATUS = ['requested', 'approved', 'denied'];
 // --- events CRUD --------------------------------------------------------
 const insertEvent = db.prepare(`
   INSERT INTO events (wing_id, squadron_id, title, description, kind, start_at, end_at,
-    multi_squadron, track_attendance, created_by, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    multi_squadron, track_attendance, roles, taskings, created_by, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectEvent = db.prepare('SELECT * FROM events WHERE id = ?');
 const updateEventStmt = db.prepare(`
   UPDATE events SET squadron_id = ?, title = ?, description = ?, kind = ?,
     start_at = ?, end_at = ?, multi_squadron = ?, track_attendance = ?,
-    updated_at = ?
+    roles = ?, taskings = ?, updated_at = ?
   WHERE id = ?
 `);
 const deleteEventStmt = db.prepare('DELETE FROM events WHERE id = ?');
+
+const safeParse = (s, fallback) => { try { return s ? JSON.parse(s) : fallback; } catch { return fallback; } };
+// Attach parsed roles/taskings so callers get usable arrays/objects, not JSON.
+const parseEvent = (r) => (r ? { ...r, roles: safeParse(r.roles, []), taskings: safeParse(r.taskings, {}) } : null);
+
+// One entry per slot: a flight (group) holds several slots (roles). limit is
+// seats in that slot (usually 1). qual gates the slot to a roster qualification.
+const normRoles = (roles) => {
+  if (!Array.isArray(roles)) return [];
+  return roles
+    .slice(0, 60)
+    .map((r) => ({
+      label: String(r?.label || '').slice(0, 80),
+      group: r?.group ? String(r.group).slice(0, 60) : '',
+      limit: Number(r?.limit) > 0 ? Math.min(99, Math.floor(Number(r.limit))) : 1,
+      qual: r?.qual ? String(r.qual).slice(0, 60) : null,
+      emoji: r?.emoji ? String(r.emoji).slice(0, 32) : null,
+    }))
+    .filter((r) => r.label);
+};
+const normTaskings = (t) => {
+  if (!t || typeof t !== 'object') return {};
+  const out = {};
+  for (const [k, v] of Object.entries(t)) {
+    if (k && v) out[String(k).slice(0, 60)] = String(v).slice(0, 40);
+  }
+  return out;
+};
 
 const normEvent = (d) => ({
   squadron_id: d.squadron_id ? Number(d.squadron_id) : null,
@@ -83,6 +137,8 @@ const normEvent = (d) => ({
   end_at: Number.isFinite(d.end_at) ? d.end_at : null,
   multi_squadron: d.multi_squadron ? 1 : 0,
   track_attendance: d.track_attendance === false ? 0 : 1,
+  roles: normRoles(d.roles),
+  taskings: normTaskings(d.taskings),
 });
 
 export function createEvent(wingId, d, createdBy = null) {
@@ -90,20 +146,86 @@ export function createEvent(wingId, d, createdBy = null) {
   const now = Date.now();
   const info = insertEvent.run(
     wingId, e.squadron_id, e.title, e.description, e.kind, e.start_at, e.end_at,
-    e.multi_squadron, e.track_attendance, createdBy, now, now
+    e.multi_squadron, e.track_attendance, JSON.stringify(e.roles), JSON.stringify(e.taskings),
+    createdBy, now, now
   );
-  return selectEvent.get(Number(info.lastInsertRowid));
+  return parseEvent(selectEvent.get(Number(info.lastInsertRowid)));
 }
 export function getEvent(id) {
-  return selectEvent.get(id) || null;
+  return parseEvent(selectEvent.get(id));
 }
 export function updateEvent(id, d) {
   const e = normEvent(d);
   updateEventStmt.run(
     e.squadron_id, e.title, e.description, e.kind, e.start_at, e.end_at,
-    e.multi_squadron, e.track_attendance, Date.now(), id
+    e.multi_squadron, e.track_attendance, JSON.stringify(e.roles), JSON.stringify(e.taskings),
+    Date.now(), id
   );
-  return selectEvent.get(id);
+  return parseEvent(selectEvent.get(id));
+}
+
+// --- flight/slot sign-ups (two-way with the Ops Bot) --------------------
+const upsertSignupStmt = db.prepare(`
+  INSERT INTO event_signups (event_id, role_label, discord_user_id, member_id, display_name, source, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT (event_id, role_label, discord_user_id)
+  DO UPDATE SET member_id = excluded.member_id, display_name = excluded.display_name, source = excluded.source
+`);
+export function setEventSignup(eventId, { role_label, discord_user_id, member_id = null, display_name = null, source = 'site' }) {
+  if (!eventId || !role_label || !discord_user_id) return false;
+  upsertSignupStmt.run(
+    eventId, String(role_label).slice(0, 80), String(discord_user_id),
+    member_id ? Number(member_id) : null, display_name ? String(display_name).slice(0, 120) : null,
+    source === 'discord' ? 'discord' : 'site', Date.now()
+  );
+  return true;
+}
+const removeSignupStmt = db.prepare('DELETE FROM event_signups WHERE event_id = ? AND role_label = ? AND discord_user_id = ?');
+export function removeEventSignup(eventId, roleLabel, discordUserId) {
+  return removeSignupStmt.run(eventId, String(roleLabel), String(discordUserId)).changes;
+}
+const removeAllSignupsForUserStmt = db.prepare('DELETE FROM event_signups WHERE event_id = ? AND discord_user_id = ?');
+export function removeAllEventSignupsForUser(eventId, discordUserId) {
+  return removeAllSignupsForUserStmt.run(eventId, String(discordUserId)).changes;
+}
+const selectEventSignups = db.prepare(`
+  SELECT s.role_label, s.discord_user_id, s.member_id, s.display_name, s.source, s.created_at,
+         m.callsign, m.rank, m.modex
+  FROM event_signups s
+  LEFT JOIN members m ON m.id = s.member_id
+  WHERE s.event_id = ?
+  ORDER BY s.created_at ASC
+`);
+export function getEventSignups(eventId) {
+  return selectEventSignups.all(eventId);
+}
+const countRoleSignupsStmt = db.prepare('SELECT COUNT(*) AS n FROM event_signups WHERE event_id = ? AND role_label = ?');
+export function countEventRoleSignups(eventId, roleLabel) {
+  return countRoleSignupsStmt.get(eventId, String(roleLabel)).n;
+}
+
+// Shared claim/toggle for a single slot — used by BOTH the site sign-up
+// endpoint and the Ops Bot sync endpoint so the rules (toggle off if already
+// in the slot, respect the cap, one-slot-per-person unless multi) are identical
+// on both sides. Qual-gating is enforced by the caller (it needs the roster).
+// `event` must be a parsed event (roles as an array). Returns:
+//   { changed, removed?, error? }   error ∈ { unknown_role, slot_full, missing_user }
+export function claimEventSlot(event, { discord_user_id, member_id = null, display_name = null, role_label, source = 'site' }) {
+  if (!discord_user_id) return { changed: false, error: 'missing_user' };
+  const uid = String(discord_user_id);
+  const role = (event.roles || []).find((r) => r.label === role_label);
+  if (!role) return { changed: false, error: 'unknown_role' };
+  const alreadyIn = getEventSignups(event.id).some((s) => s.discord_user_id === uid && s.role_label === role_label);
+  if (alreadyIn) {
+    removeEventSignup(event.id, role_label, uid);
+    return { changed: true, removed: true };
+  }
+  if (role.limit && countEventRoleSignups(event.id, role_label) >= role.limit) {
+    return { changed: false, error: 'slot_full' };
+  }
+  if (!event.multi_squadron) removeAllEventSignupsForUser(event.id, uid);
+  setEventSignup(event.id, { role_label, discord_user_id: uid, member_id, display_name, source });
+  return { changed: true };
 }
 export function deleteEvent(id) {
   return deleteEventStmt.run(id).changes;

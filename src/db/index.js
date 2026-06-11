@@ -800,6 +800,13 @@ export function setMemberQual(memberId, qualId, { status, awarded_at, expires_at
 export function getMemberQuals(memberId) {
   return selectMemberQuals.all(memberId);
 }
+// True if the member currently holds the named qual (matched by code OR name).
+// Used to gate event flight slots that require a qualification.
+export function memberHoldsQual(memberId, qualNameOrCode) {
+  if (!qualNameOrCode) return true;
+  return selectMemberQuals.all(memberId).some(
+    (q) => q.status === 'qualified' && (q.code === qualNameOrCode || q.name === qualNameOrCode));
+}
 export function removeMemberQual(memberId, qualId) {
   return deleteMemberQualStmt.run(memberId, qualId).changes;
 }
