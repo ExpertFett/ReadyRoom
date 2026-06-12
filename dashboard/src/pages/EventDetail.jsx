@@ -2,6 +2,15 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
+import { FlightsEditor, flightsToRoles, rolesToFlights } from './Calendar.jsx';
+
+// ms -> "YYYY-MM-DDTHH:mm" in local time, for datetime-local inputs (DST-correct
+// via the target date's own offset).
+const toLocalInput = (ms) => {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return new Date(ms - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
 
 const STATUSES = [
   { key: 'present', label: 'Present', cls: 'present' },
@@ -98,6 +107,9 @@ export default function EventDetail() {
   const { me } = useMe();
   const navigate = useNavigate();
   const [event, setEvent] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [reposting, setReposting] = useState(false);
+  const [repostMsg, setRepostMsg] = useState('');
 
   const load = async () => setEvent(await api.get(`/api/events/${id}`));
   useEffect(() => { load(); }, [id]);
@@ -117,6 +129,18 @@ export default function EventDetail() {
     await api.del(`/api/events/${event.id}`);
     navigate('/events');
   };
+  // (Re)post to Discord — first publish, or refresh/bump an existing post.
+  const repost = async () => {
+    setReposting(true); setRepostMsg('');
+    try {
+      await api.post(`/api/events/${event.id}/republish`, {});
+      setRepostMsg('Posted ✓'); await load();
+    } catch (e) {
+      setRepostMsg(e.data?.error === 'discord_not_configured'
+        ? 'Discord isn\'t set up for this wing (Wing → Discord publish).'
+        : 'Couldn\'t post to Discord.');
+    } finally { setReposting(false); }
+  };
 
   // Bulk-mark whoever isn't marked yet
   const bulkMarkUnmarked = async (status) => {
@@ -135,10 +159,26 @@ export default function EventDetail() {
           <h1>{event.title} {event.kind === 'extra_credit' && <span className="badge commander" style={{ marginLeft: 8 }}>★ Extra Credit</span>}</h1>
           <p className="muted">{fmt(event.start_at)}{event.track_attendance ? ' · attendance tracked' : ''}</p>
         </div>
-        {me.isAdmin && <button className="danger small" onClick={del}>Delete</button>}
+        {me.isAdmin && (
+          <div className="row">
+            <button className="small" onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Edit'}</button>
+            <button className="small" onClick={repost} disabled={reposting}>
+              {reposting ? 'Posting…' : event.discord_message_id ? 'Repost to Discord' : 'Post to Discord'}
+            </button>
+            <button className="danger small" onClick={del}>Delete</button>
+          </div>
+        )}
       </div>
+      {me.isAdmin && (
+        <p className="muted small" style={{ marginTop: -6 }}>
+          {event.discord_message_id ? '📌 Posted to Discord' : 'Not posted to Discord yet'}
+          {repostMsg && <span> · {repostMsg}</span>}
+        </p>
+      )}
 
-      {event.description && <div className="card" style={{ whiteSpace: 'pre-wrap', marginBottom: 14 }}>{event.description}</div>}
+      {editing && <EditEvent event={event} onDone={() => { setEditing(false); load(); }} />}
+
+      {event.description && !editing && <div className="card" style={{ whiteSpace: 'pre-wrap', marginBottom: 14 }}>{event.description}</div>}
 
       {event.roles?.length > 0 && <FlightRoster event={event} me={me} onChange={load} />}
 
@@ -181,5 +221,69 @@ export default function EventDetail() {
         </>
       )}
     </div>
+  );
+}
+
+// Admin edit form for an event — core fields + the flight/slot editor. Saving
+// PUTs the event; the API also edits the published Discord panel if one exists.
+function EditEvent({ event, onDone }) {
+  const [f, setF] = useState({
+    title: event.title || '',
+    kind: event.kind || 'squadron',
+    start_at: toLocalInput(event.start_at),
+    squadron_id: event.squadron_id || '',
+    description: event.description || '',
+    track_attendance: !!event.track_attendance,
+  });
+  const [flights, setFlights] = useState(rolesToFlights(event.roles, event.taskings));
+  const [squadrons, setSquadrons] = useState([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.get(`/api/squadrons?wing_id=${event.wing_id}`).then(setSquadrons).catch(() => {}); }, [event.wing_id]);
+
+  const save = async (e) => {
+    e.preventDefault();
+    if (!f.title.trim()) return;
+    setBusy(true);
+    try {
+      await api.put(`/api/events/${event.id}`, {
+        title: f.title, kind: f.kind,
+        start_at: f.start_at ? new Date(f.start_at).getTime() : event.start_at,
+        squadron_id: f.squadron_id ? Number(f.squadron_id) : null,
+        description: f.description, track_attendance: f.track_attendance,
+        ...flightsToRoles(flights),
+      });
+      onDone();
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <form className="card" onSubmit={save} style={{ marginBottom: 14 }}>
+      <h3 style={{ marginTop: 0 }}>Edit event</h3>
+      <div className="form-grid">
+        <div className="field"><label>Title *</label><input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
+        <div className="field"><label>Date &amp; time *</label>
+          <input type="datetime-local" value={f.start_at} onChange={(e) => setF({ ...f, start_at: e.target.value })} /></div>
+        <div className="field"><label>Kind</label>
+          <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
+            <option value="squadron">Squadron event</option>
+            <option value="extra_credit">Extra credit</option>
+          </select></div>
+        <div className="field"><label>Host squadron</label>
+          <select value={f.squadron_id} onChange={(e) => setF({ ...f, squadron_id: e.target.value })}>
+            <option value="">(wing-wide)</option>
+            {squadrons.map((s) => <option key={s.id} value={s.id}>{s.tag || s.name}</option>)}
+          </select></div>
+      </div>
+      <div className="field"><label>Description</label><textarea rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
+      <FlightsEditor flights={flights} setFlights={setFlights} />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={f.track_attendance} onChange={(e) => setF({ ...f, track_attendance: e.target.checked })} />
+        Track attendance
+      </label>
+      <div className="row" style={{ marginTop: 10 }}>
+        <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+        <span className="muted small" style={{ alignSelf: 'center' }}>Saving also updates the Discord post if it's already published.</span>
+      </div>
+    </form>
   );
 }

@@ -1214,6 +1214,30 @@ export function apiRouter() {
     res.json({ ok });
   });
 
+  // (Re)post the event to Discord. Removes the old message (if any) and posts a
+  // fresh panel with the current roster — used to first-publish an event that
+  // wasn't wired at create time, or to bump / refresh an existing post.
+  router.post('/events/:id/republish', requireAdmin, async (req, res) => {
+    const e = getEvent(Number(req.params.id));
+    if (!e) return res.status(404).json({ error: 'not_found' });
+    const wing = getWing(e.wing_id);
+    if (!wing?.ops_bot_url || !wing?.ops_bot_token) {
+      return res.status(400).json({ error: 'discord_not_configured' });
+    }
+    if (e.discord_message_id) await opsbotDeleteEvent(wing, e.discord_message_id).catch(() => {});
+    const r = await opsbotPublishEvent(wing, {
+      readyroom_event_id: e.id,
+      title: e.title, description: e.description, kind: e.kind,
+      start_at: e.start_at, roles: e.roles, taskings: e.taskings,
+      signups: getEventSignups(e.id),
+      url: `${getBaseUrl()}/events/${e.id}`,
+    });
+    if (!r) { setEventDiscord(e.id, null, null); return res.status(502).json({ error: 'publish_failed' }); }
+    setEventDiscord(e.id, r.channel_id, r.message_id);
+    audit(req, e.wing_id, 'published', 'event', e.id, `Reposted to Discord: ${e.title}`);
+    res.json({ ok: true, message_id: r.message_id });
+  });
+
   // ----- attendance -----
   router.post('/events/:id/attendance', requireAdmin, (req, res) => {
     const e = getEvent(Number(req.params.id));

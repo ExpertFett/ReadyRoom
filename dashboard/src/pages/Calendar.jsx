@@ -168,7 +168,7 @@ function CreateEvent({ wing, onDone }) {
 // Convert the editor's flight rows into the API's roles[] + taskings{} shape.
 // Each flight expands to `seats` uniquely-labelled slots ("Spear 1", "Spear 2")
 // so sign-up keys never collide; the flight-level qual gates every seat.
-function flightsToRoles(flights) {
+export function flightsToRoles(flights) {
   const roles = [];
   const taskings = {};
   for (const fl of flights) {
@@ -183,10 +183,26 @@ function flightsToRoles(flights) {
   return { roles, taskings };
 }
 
+// Reverse of flightsToRoles: collapse stored roles[] + taskings{} back into the
+// editor's per-flight rows (so an event can be edited). Seats = slots in the
+// group; the flight-level qual is taken from the group's slots.
+export function rolesToFlights(roles = [], taskings = {}) {
+  const order = [];
+  const byGroup = new Map();
+  for (const r of roles) {
+    const g = r.group || '';
+    if (!byGroup.has(g)) { byGroup.set(g, { name: g, tasking: taskings[g] || '', seats: 0, qual: r.qual || '' }); order.push(g); }
+    const fl = byGroup.get(g);
+    fl.seats += 1;
+    if (r.qual && !fl.qual) fl.qual = r.qual;
+  }
+  return order.map((g) => byGroup.get(g));
+}
+
 // Optional flight/slot editor. Define flights (e.g. "Spear", SEAD, 4 seats) and
 // the event publishes to Discord as a full sign-up panel with one button per
 // seat. Leave empty for a plain event with no sign-up slots.
-function FlightsEditor({ flights, setFlights }) {
+export function FlightsEditor({ flights, setFlights }) {
   const add = () => setFlights([...flights, { name: '', tasking: '', seats: 2, qual: '' }]);
   const set = (i, k, v) => setFlights(flights.map((fl, j) => (j === i ? { ...fl, [k]: v } : fl)));
   const remove = (i) => setFlights(flights.filter((_, j) => j !== i));
