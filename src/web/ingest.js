@@ -1,6 +1,24 @@
 import { Router } from 'express';
 import { getWingByIngestToken, addSortie, getMemberByDiscord, memberHoldsQual } from '../db/index.js';
 import { getEvent, getEventSignups, claimEventSlot, removeAllEventSignupsForUser } from '../db/events.js';
+import { getBaseUrl } from '../config.js';
+
+// Canonical "panel" shape the Ops Bot renders a sign-up message from. Sent on
+// publish/edit and returned from every sign-up sync so the bot always re-renders
+// from authoritative ReadyRoom data (single source of truth — no drift).
+function eventPanel(ev) {
+  return {
+    readyroom_event_id: ev.id,
+    title: ev.title,
+    description: ev.description,
+    kind: ev.kind,
+    start_at: ev.start_at,
+    roles: ev.roles || [],
+    taskings: ev.taskings || {},
+    url: `${getBaseUrl()}/events/${ev.id}`,
+    signups: getEventSignups(ev.id),
+  };
+}
 
 // Public, token-authenticated endpoint for sortie telemetry (machine-to-machine).
 // The token maps to a wing. Mounted OUTSIDE the dashboard's session auth.
@@ -35,27 +53,35 @@ export function ingestRouter() {
       const ev = getEvent(Number(b.readyroom_event_id));
       if (!ev || ev.wing_id !== wing.id) return res.status(404).json({ error: 'event_not_found' });
       const discordId = String(b.discord_user_id || '');
+      const action = b.action || (b.role_label || b.role_index != null ? 'toggle' : 'fetch');
+
+      // fetch = no change, just hand back the current panel (used to (re)render).
+      if (action === 'fetch') return res.json({ ok: true, panel: eventPanel(ev) });
       if (!discordId) return res.status(400).json({ error: 'missing_user' });
       const member = getMemberByDiscord(discordId);
 
-      if (b.action === 'withdraw' || !b.role_label) {
+      if (action === 'withdraw') {
         removeAllEventSignupsForUser(ev.id, discordId);
-        return res.json({ ok: true, signups: getEventSignups(ev.id) });
+        return res.json({ ok: true, panel: eventPanel(ev) });
       }
-      const role = (ev.roles || []).find((r) => r.label === String(b.role_label));
+      // The bot identifies a slot by index (stable, avoids label escaping); the
+      // site sends a label. Accept either.
+      const role = b.role_index != null
+        ? (ev.roles || [])[Number(b.role_index)]
+        : (ev.roles || []).find((r) => r.label === String(b.role_label));
       if (!role) return res.status(400).json({ error: 'unknown_role' });
       if (role.qual && member && !memberHoldsQual(member.id, role.qual)) {
-        return res.status(403).json({ error: 'qual_required', qual: role.qual, signups: getEventSignups(ev.id) });
+        return res.status(403).json({ error: 'qual_required', qual: role.qual, panel: eventPanel(ev) });
       }
       const result = claimEventSlot(ev, {
         discord_user_id: discordId, member_id: member?.id || null,
         display_name: member?.callsign || (b.username ? String(b.username) : null),
-        role_label: String(b.role_label), source: 'discord',
+        role_label: role.label, source: 'discord',
       });
       if (result.error === 'slot_full') {
-        return res.status(409).json({ error: 'slot_full', signups: getEventSignups(ev.id) });
+        return res.status(409).json({ error: 'slot_full', panel: eventPanel(ev) });
       }
-      return res.json({ ok: true, signups: getEventSignups(ev.id) });
+      return res.json({ ok: true, panel: eventPanel(ev) });
     }
 
     const list = Array.isArray(b.sorties) ? b.sorties : Array.isArray(b) ? b : [];
