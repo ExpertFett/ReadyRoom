@@ -239,22 +239,29 @@ export function setEventDiscord(id, channelId, messageId) {
 }
 
 // --- list events in a range (for calendar) ------------------------------
+const SEATS_FILLED = '(SELECT COUNT(*) FROM event_signups s WHERE s.event_id = events.id) AS seats_filled';
 const selectEventsInRange = db.prepare(`
-  SELECT * FROM events
+  SELECT *, ${SEATS_FILLED} FROM events
   WHERE wing_id = ? AND start_at >= ? AND start_at < ?
   ORDER BY start_at ASC
 `);
 const selectEventsBySquadronInRange = db.prepare(`
-  SELECT * FROM events
+  SELECT *, ${SEATS_FILLED} FROM events
   WHERE wing_id = ? AND start_at >= ? AND start_at < ?
     AND (squadron_id = ? OR multi_squadron = 1)
   ORDER BY start_at ASC
 `);
 
 export function getEventsInRange(wingId, fromMs, toMs, { squadronId } = {}) {
-  return squadronId
+  const rows = squadronId
     ? selectEventsBySquadronInRange.all(wingId, fromMs, toMs, squadronId)
     : selectEventsInRange.all(wingId, fromMs, toMs);
+  return rows.map((r) => {
+    const ev = parseEvent(r);
+    ev.seats_total = (ev.roles || []).reduce((n, role) => n + (role.limit || 0), 0);
+    ev.seats_filled = r.seats_filled || 0;
+    return ev;
+  });
 }
 
 // --- attendance ---------------------------------------------------------

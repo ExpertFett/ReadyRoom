@@ -19,20 +19,43 @@ const evtTime = (ms) => {
   return m ? `${h}:${String(m).padStart(2, '0')}${ap}` : `${h}${ap}`;
 };
 
+const evtDateShort = (ms) => new Date(ms).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+// One-line summary of an event's flights/taskings (or its kind if no flights).
+function eventSummary(e) {
+  if (e.roles?.length) {
+    const groups = [];
+    const seen = new Set();
+    for (const r of e.roles) { const g = r.group || 'Slots'; if (!seen.has(g)) { seen.add(g); groups.push(g); } }
+    return groups.map((g) => { const t = e.taskings?.[g]; return t ? `${g} (${t})` : g; }).join(' · ');
+  }
+  return e.kind === 'extra_credit' ? 'Extra credit' : e.track_attendance ? 'Attendance tracked' : 'Squadron event';
+}
+
 export default function Calendar() {
   const { me, activeWing } = useMe();
+  const [view, setView] = useState('list'); // 'list' (upfront agenda) | 'month'
   const [cursor, setCursor] = useState(() => {
     const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d;
   });
   const [events, setEvents] = useState([]);
+  const [upcoming, setUpcoming] = useState([]);
   const [creating, setCreating] = useState(false);
 
+  // Month grid: the visible 6-week window.
   useEffect(() => {
     if (!activeWing) return;
     const start = new Date(cursor); start.setDate(1 - cursor.getDay());
     const end = new Date(start); end.setDate(start.getDate() + 42);
     api.get(`/api/wings/${activeWing.id}/events?from=${start.getTime()}&to=${end.getTime()}`).then(setEvents);
   }, [cursor, activeWing, creating]);
+
+  // Agenda list: everything from now out ~90 days, soonest first.
+  useEffect(() => {
+    if (!activeWing) return;
+    const now = Date.now();
+    api.get(`/api/wings/${activeWing.id}/events?from=${now}&to=${now + 90 * 86400000}`)
+      .then((list) => setUpcoming((list || []).filter((e) => e.start_at >= now - 3600000)));
+  }, [activeWing, creating]);
 
   if (!activeWing) return <div className="empty">No wing yet. <Link to="/wing">Set one up →</Link></div>;
 
@@ -59,48 +82,87 @@ export default function Calendar() {
     <div>
       <div className="between">
         <h1>Events</h1>
-        {me.isAdmin && <button className="primary" onClick={() => setCreating((v) => !v)}>{creating ? 'Cancel' : '+ Create event'}</button>}
+        <div className="row" style={{ gap: 8 }}>
+          <button className={`small ${view === 'list' ? 'primary' : ''}`} onClick={() => setView('list')}>List</button>
+          <button className={`small ${view === 'month' ? 'primary' : ''}`} onClick={() => setView('month')}>Month</button>
+          {me.isAdmin && <button className="primary" onClick={() => setCreating((v) => !v)}>{creating ? 'Cancel' : '+ Create event'}</button>}
+        </div>
       </div>
 
       {creating && <CreateEvent wing={activeWing} onDone={() => setCreating(false)} />}
 
-      <div className="row" style={{ alignItems: 'center', marginTop: 12, gap: 8 }}>
-        <button className="small" onClick={move(-1)}>‹</button>
-        <button className="small" onClick={jumpToday}>Today</button>
-        <button className="small" onClick={move(1)}>›</button>
-        <strong style={{ marginLeft: 6 }}>{fmtMonth}</strong>
-      </div>
+      {view === 'list' ? (
+        <AgendaList events={upcoming} />
+      ) : (
+        <>
+          <div className="row" style={{ alignItems: 'center', marginTop: 12, gap: 8 }}>
+            <button className="small" onClick={move(-1)}>‹</button>
+            <button className="small" onClick={jumpToday}>Today</button>
+            <button className="small" onClick={move(1)}>›</button>
+            <strong style={{ marginLeft: 6 }}>{fmtMonth}</strong>
+          </div>
 
-      <div className="cal-grid">
-        {WEEK.map((d) => <div key={d} className="cal-head">{d}</div>)}
-        {cells.map((d, i) => {
-          const key = isoDay(d);
-          const inMonth = d.getMonth() === monthStart.getMonth();
-          const list = byDay.get(key) || [];
-          return (
-            <div key={i} className={`cal-cell ${inMonth ? '' : 'out'} ${key === today ? 'today' : ''}`}>
-              <div className="cal-date">{d.getDate()}</div>
-              {list.map((e) => (
-                <Link key={e.id} to={`/events/${e.id}`} className={`cal-evt ${e.kind}`} title={`${evtTime(e.start_at)} · ${e.title}`}>
-                  {e.kind === 'extra_credit' ? '★ ' : ''}
-                  {e.discord_message_id && <span title="Posted to Discord" style={{ marginRight: 2 }}>📌</span>}
-                  <span className="cal-evt-time">{evtTime(e.start_at)}</span> {e.title}
-                </Link>
-              ))}
+          <div className="cal-grid">
+            {WEEK.map((d) => <div key={d} className="cal-head">{d}</div>)}
+            {cells.map((d, i) => {
+              const key = isoDay(d);
+              const inMonth = d.getMonth() === monthStart.getMonth();
+              const list = byDay.get(key) || [];
+              return (
+                <div key={i} className={`cal-cell ${inMonth ? '' : 'out'} ${key === today ? 'today' : ''}`}>
+                  <div className="cal-date">{d.getDate()}</div>
+                  {list.map((e) => (
+                    <Link key={e.id} to={`/events/${e.id}`} className={`cal-evt ${e.kind}`} title={`${evtTime(e.start_at)} · ${e.title}`}>
+                      {e.kind === 'extra_credit' ? '★ ' : ''}
+                      {e.discord_message_id && <span title="Posted to Discord" style={{ marginRight: 2 }}>📌</span>}
+                      <span className="cal-evt-time">{evtTime(e.start_at)}</span> {e.title}
+                    </Link>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="row small muted" style={{ marginTop: 12, gap: 18, flexWrap: 'wrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span className="cal-evt squadron" style={{ display: 'inline-block', width: 14, height: 10, padding: 0, margin: 0 }} /> Squadron event
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span className="cal-evt extra_credit" style={{ display: 'inline-block', width: 14, height: 10, padding: 0, margin: 0 }} /> ★ Extra credit
+            </span>
+            <span>📌 Posted to Discord</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Upfront agenda: upcoming events as scannable rows so members don't have to
+// dig through the month grid. Date/time on the left, title + flight summary in
+// the middle, seats filled on the right; the whole row links to the event.
+function AgendaList({ events }) {
+  if (!events.length) return <div className="empty" style={{ marginTop: 14 }}>No upcoming events.</div>;
+  return (
+    <div className="card" style={{ padding: 0, marginTop: 14 }}>
+      {events.map((e) => (
+        <Link key={e.id} to={`/events/${e.id}`} className="list-row" style={{ padding: '11px 14px' }}>
+          <div style={{ display: 'flex', gap: 14, minWidth: 0 }}>
+            <div style={{ minWidth: 92, flex: '0 0 auto' }}>
+              <div className="callsign">{evtDateShort(e.start_at)}</div>
+              <div className="small muted">{evtTime(e.start_at)}</div>
             </div>
-          );
-        })}
-      </div>
-
-      <div className="row small muted" style={{ marginTop: 12, gap: 18, flexWrap: 'wrap' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span className="cal-evt squadron" style={{ display: 'inline-block', width: 14, height: 10, padding: 0, margin: 0 }} /> Squadron event
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span className="cal-evt extra_credit" style={{ display: 'inline-block', width: 14, height: 10, padding: 0, margin: 0 }} /> ★ Extra credit
-        </span>
-        <span>📌 Posted to Discord</span>
-      </div>
+            <div style={{ minWidth: 0 }}>
+              <div className="callsign">
+                {e.kind === 'extra_credit' && '★ '}{e.title}
+                {e.discord_message_id && <span className="muted small" title="Posted to Discord"> · 📌</span>}
+              </div>
+              <div className="small muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{eventSummary(e)}</div>
+            </div>
+          </div>
+          {e.seats_total > 0 && <span className="seat-pill" title="Seats filled">{e.seats_filled}/{e.seats_total}</span>}
+        </Link>
+      ))}
     </div>
   );
 }

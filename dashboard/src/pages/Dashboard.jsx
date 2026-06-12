@@ -10,11 +10,16 @@ export default function Dashboard() {
   const { me, activeWing } = useMe();
   const [data, setData] = useState(null);
   const [stats, setStats] = useState(null);
+  const [events, setEvents] = useState([]);
 
   useEffect(() => {
     if (!activeWing) return;
     api.get(`/api/dashboard?wing_id=${activeWing.id}`).then(setData);
     api.get(`/api/wings/${activeWing.id}/dashboard-stats`).then(setStats).catch(() => setStats(null));
+    const now = Date.now();
+    api.get(`/api/wings/${activeWing.id}/events?from=${now}&to=${now + 30 * 86400000}`)
+      .then((list) => setEvents((list || []).filter((e) => e.start_at >= now - 3600000).slice(0, 6)))
+      .catch(() => setEvents([]));
   }, [activeWing]);
 
   if (!activeWing) {
@@ -39,6 +44,28 @@ export default function Dashboard() {
       <SetupCard wingId={activeWing.id} isAdmin={me.isAdmin} />
 
       <KPITiles stats={stats} />
+
+      <section style={{ marginTop: 8 }}>
+        <div className="between">
+          <h2 style={{ marginBottom: 6 }}>Upcoming events</h2>
+          <Link className="small" to="/events">All events →</Link>
+        </div>
+        {!events.length ? (
+          <div className="empty">No upcoming events.</div>
+        ) : (
+          <div className="card" style={{ padding: 0 }}>
+            {events.map((e) => (
+              <Link key={e.id} to={`/events/${e.id}`} className="list-row" style={{ padding: '10px 14px' }}>
+                <div>
+                  <div className="callsign">{e.kind === 'extra_credit' ? '★ ' : ''}{e.title}</div>
+                  <div className="small muted">{fmt(e.start_at)}</div>
+                </div>
+                {e.seats_total > 0 && <span className="seat-pill">{e.seats_filled}/{e.seats_total}</span>}
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="row" style={{ alignItems: 'flex-start', marginTop: 8 }}>
         <section className="card" style={{ flex: '1 1 360px' }}>
