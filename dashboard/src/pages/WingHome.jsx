@@ -541,19 +541,64 @@ function ModexPools({ wingId }) {
 
 function Ingest({ wingId }) {
   const [url, setUrl] = useState(null);
+  const [copied, setCopied] = useState(false);
   const reveal = async () => setUrl((await api.get(`/api/wings/${wingId}/ingest`)).ingest_url);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { /* clipboard blocked — user can select manually */ }
+  };
+  const regen = async () => {
+    if (!confirm('Generate a NEW ingest URL? The old one stops working immediately, so you\'ll have to update your hook / Ops Bot to the new one.')) return;
+    setUrl((await api.post(`/api/wings/${wingId}/ingest/regen`, {})).ingest_url);
+    setCopied(false);
+  };
   return (
     <section>
       <h2>Sortie ingest <span className="badge reserve" style={{ marginLeft: 8, fontSize: 11 }}>① DCS → Ready Room</span></h2>
       <div className="card">
         <p className="muted small" style={{ marginTop: 0 }}>
-          Point your DCS hook (or a VectorBot mirror) at this URL — it POSTs each sortie so <b>flight hours and
-          carrier traps fill in automatically</b>. The URL has a secret token baked in, so treat it like a
-          password; reveal it only when you're ready to paste it into the hook.
+          A one-time hookup so DCS flight data flows into Ready Room on its own — <b>flight hours fill in
+          automatically</b> as people fly, no manual logging. Set it up once and forget it.
         </p>
-        {url
-          ? <code style={{ wordBreak: 'break-all' }}>{url}</code>
-          : <button className="small" onClick={reveal}>Reveal ingest URL</button>}
+
+        <ol className="walkthrough">
+          <li>
+            <b>Reveal your ingest URL and copy it.</b>
+            <div className="muted small">It has a secret token baked in that identifies your wing — treat it like a password, don't post it publicly.</div>
+            <div style={{ marginTop: 6 }}>
+              {url ? (
+                <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <code style={{ wordBreak: 'break-all', flex: '1 1 240px' }}>{url}</code>
+                  <button type="button" className="small" onClick={copy}>{copied ? 'Copied ✓' : 'Copy'}</button>
+                  <button type="button" className="small" onClick={regen} title="Rotate the token if it ever leaks">Regenerate</button>
+                </div>
+              ) : (
+                <button type="button" className="small primary" onClick={reveal}>Reveal ingest URL</button>
+              )}
+            </div>
+          </li>
+          <li>
+            <b>Paste it where your DCS flight data comes from</b> — pick the one that matches your setup:
+            <ul>
+              <li><b>You run the Ops Bot</b> (most squadrons): on the Ops Bot dashboard go to <b>DCS Server → ReadyRoom integration</b> and paste this in as the ingest URL. The bot then forwards every sortie here (and still keeps its own Discord stats).</li>
+              <li><b>Straight from DCS:</b> paste it into your DCS server's reporting hook as the POST target.</li>
+            </ul>
+          </li>
+          <li>
+            <b>That's it — go fly.</b> Each landing posts one sortie (pilot, airframe, time aloft). They show up
+            under the <b>Sortie feed</b> above, and the hours roll up onto the Dashboard and each pilot's page.
+          </li>
+        </ol>
+
+        <div className="callout">
+          <b>📛 How pilot names get matched to the roster</b>
+          <p className="small" style={{ margin: '4px 0 0' }}>
+            DCS reports each pilot's <i>in-game name</i>, which won't always match their roster entry. Ready Room
+            auto-links it by callsign when it can. Any name it doesn't recognize is still saved and listed under
+            <b> Unmatched aliases</b> (in your roster tools) — link it to a member once, and that pilot's past
+            <i> and</i> future sorties attribute to them automatically.
+          </p>
+        </div>
       </div>
     </section>
   );

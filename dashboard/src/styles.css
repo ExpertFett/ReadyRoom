@@ -300,6 +300,15 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 4px; }
 .badge.att-excused { color: var(--warn); border-color: var(--warn); }
 .badge.att-ua, .badge.att-absent { color: var(--danger); border-color: var(--danger); }
 
+/* --- numbered walkthrough + callout (setup explainers) --- */
+.walkthrough { margin: 8px 0 0; padding-left: 20px; }
+.walkthrough > li { margin-bottom: 12px; line-height: 1.5; }
+.walkthrough > li::marker { color: var(--accent); font-weight: 700; }
+.walkthrough ul { margin: 6px 0 0; padding-left: 18px; list-style: disc; }
+.walkthrough ul li { margin-bottom: 4px; line-height: 1.45; }
+.callout { margin-top: 12px; padding: 10px 12px; border-left: 3px solid var(--accent); background: rgba(76, 139, 245, 0.08); border-radius: 4px; }
+.callout p { color: var(--muted); }
+
 /* ===================================================================
    Mobile / narrow-screen support (added for squadron members on phones)
    The app was desktop-only — 9 nav links, wide matrix tables, and
