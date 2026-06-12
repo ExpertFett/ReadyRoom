@@ -17,6 +17,9 @@ function eventPanel(ev) {
     taskings: ev.taskings || {},
     url: `${getBaseUrl()}/events/${ev.id}`,
     signups: getEventSignups(ev.id),
+    // So the bot can re-render the main message after an ephemeral slot pick.
+    discord_channel_id: ev.discord_channel_id || null,
+    discord_message_id: ev.discord_message_id || null,
   };
 }
 

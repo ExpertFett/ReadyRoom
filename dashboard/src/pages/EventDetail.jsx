@@ -81,7 +81,7 @@ function FlightRoster({ event, me, onChange }) {
                 return (
                   <div key={role.label} className="between" style={{ padding: '5px 0', borderBottom: '1px solid var(--border)', gap: 8 }}>
                     <div style={{ minWidth: 0 }}>
-                      <strong>{role.label}</strong>{role.qual && <span className="muted small"> 🔒 {role.qual}</span>}
+                      <strong>{role.label.startsWith(flight + ' ') ? role.label.slice(flight.length + 1) : role.label}</strong>{role.qual && <span className="muted small"> 🔒 {role.qual}</span>}
                       <div className="small muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {filled.length ? filled.map((s) => s.callsign || s.display_name || 'pilot').join(', ') : 'open'}
                       </div>

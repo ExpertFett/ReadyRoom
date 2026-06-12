@@ -165,9 +165,19 @@ function CreateEvent({ wing, onDone }) {
   );
 }
 
+// Standard fighter-flight position for the Nth seat (1-based): seat 1 is the
+// Flight Lead, seat 3 is the Section/Element Lead, the rest are wingmen.
+export function slotPosition(i) {
+  if (i === 1) return 'Flight Lead';
+  if (i === 3) return 'Section Lead';
+  return `Dash ${i}`;
+}
+
 // Convert the editor's flight rows into the API's roles[] + taskings{} shape.
-// Each flight expands to `seats` uniquely-labelled slots ("Spear 1", "Spear 2")
-// so sign-up keys never collide; the flight-level qual gates every seat.
+// Each flight expands to `seats` positional slots ("Spear Flight Lead",
+// "Spear Dash 2", "Spear Section Lead", …) — uniquely labelled so sign-up keys
+// never collide. The flight's qual gates only the LEAD seats (Flight Lead /
+// Section Lead); wingman seats are open.
 export function flightsToRoles(flights) {
   const roles = [];
   const taskings = {};
@@ -176,8 +186,11 @@ export function flightsToRoles(flights) {
     if (!name) continue;
     if ((fl.tasking || '').trim()) taskings[name] = fl.tasking.trim();
     const seats = Math.max(1, Math.min(20, Number(fl.seats) || 1));
+    const leadQual = (fl.qual || '').trim() || null;
     for (let i = 1; i <= seats; i++) {
-      roles.push({ label: `${name} ${i}`, group: name, limit: 1, qual: (fl.qual || '').trim() || null });
+      const pos = slotPosition(i);
+      const isLead = i === 1 || i === 3;
+      roles.push({ label: `${name} ${pos}`, group: name, limit: 1, qual: isLead ? leadQual : null });
     }
   }
   return { roles, taskings };
@@ -216,7 +229,7 @@ export function FlightsEditor({ flights, setFlights }) {
           <input style={{ flex: '1 1 110px' }} value={fl.name} onChange={(e) => set(i, 'name', e.target.value)} placeholder="Flight (Spear)" />
           <input style={{ flex: '1 1 100px' }} value={fl.tasking} onChange={(e) => set(i, 'tasking', e.target.value)} placeholder="Tasking (SEAD)" />
           <input style={{ width: 70 }} type="number" min="1" max="20" value={fl.seats} onChange={(e) => set(i, 'seats', e.target.value)} title="Seats" />
-          <input style={{ flex: '1 1 110px' }} value={fl.qual} onChange={(e) => set(i, 'qual', e.target.value)} placeholder="Req. qual (opt)" />
+          <input style={{ flex: '1 1 110px' }} value={fl.qual} onChange={(e) => set(i, 'qual', e.target.value)} placeholder="Lead qual (opt)" title="Required to take the Flight Lead / Section Lead seats" />
           <button type="button" className="small danger" onClick={() => remove(i)}>×</button>
         </div>
       ))}
