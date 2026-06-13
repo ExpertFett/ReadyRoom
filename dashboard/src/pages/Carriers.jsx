@@ -34,14 +34,13 @@ export default function Carriers() {
         ) : (
           <div className="card" style={{ padding: 0 }}>
             <table>
-              <thead><tr><th>Name</th><th>Hull</th><th>Class</th><th>BRC</th><th></th></tr></thead>
+              <thead><tr><th>Name</th><th>Hull</th><th>Class</th><th></th></tr></thead>
               <tbody>
                 {carriers.map((c) => (
                   <tr key={c.id}>
                     <td><Link to={`/carriers/${c.id}`} className="callsign">{c.name}</Link></td>
                     <td className="small">{c.hull || '—'}</td>
                     <td className="small">{c.class || '—'}</td>
-                    <td className="small">{c.brc != null ? `${String(c.brc).padStart(3, '0')}°` : '—'}</td>
                     <td className="small muted">{c.notes ? c.notes.slice(0, 60) : ''}</td>
                   </tr>
                 ))}
@@ -57,7 +56,7 @@ export default function Carriers() {
 }
 
 function CreateCarrier({ wing, onDone }) {
-  const [f, setF] = useState({ name: '', hull: '', class: '', brc: '', notes: '' });
+  const [f, setF] = useState({ name: '', hull: '', class: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const submit = async (e) => {
@@ -76,7 +75,6 @@ function CreateCarrier({ wing, onDone }) {
         <div className="field"><label>Name *</label><input value={f.name} onChange={set('name')} placeholder="USS Abraham Lincoln" /></div>
         <div className="field"><label>Hull</label><input value={f.hull} onChange={set('hull')} placeholder="CVN-72" /></div>
         <div className="field"><label>Class</label><input value={f.class} onChange={set('class')} placeholder="Nimitz" /></div>
-        <div className="field"><label>BRC</label><input type="number" value={f.brc} onChange={set('brc')} placeholder="030" /></div>
       </div>
       <div className="field"><label>Notes</label><textarea rows={2} value={f.notes} onChange={set('notes')} /></div>
       <button className="primary" disabled={busy}>Add</button>

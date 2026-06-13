@@ -34,10 +34,7 @@ export default function CarrierDetail() {
       <div className="between">
         <div>
           <h1>{carrier.name} {carrier.hull && <span className="muted">{carrier.hull}</span>}</h1>
-          <p className="small muted">
-            {carrier.class || '—'} class
-            {carrier.brc != null && ` · BRC ${String(carrier.brc).padStart(3, '0')}°`}
-          </p>
+          <p className="small muted">{carrier.class || '—'} class</p>
         </div>
         {me.isAdmin && <button className="primary" onClick={() => setLogging((v) => !v)}>{logging ? 'Cancel' : '+ Log trap'}</button>}
       </div>
