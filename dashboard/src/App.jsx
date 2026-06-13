@@ -72,7 +72,14 @@ export default function App() {
     if (!me?.user || !wings.length) return wings;
     const uid = String(me.user.id);
     const mine = wings.filter(
-      (w) => String(w.created_by) === uid || (me.member && me.member.wing_id === w.id),
+      (w) => String(w.created_by) === uid
+        || (me.member && me.member.wing_id === w.id)
+        // Unowned wings (created before ownership tracking, e.g. an early demo
+        // wing). Only a root/owner ever RECEIVES these from /api/wings — a
+        // regular member only gets their own wing — so this surfaces orphaned
+        // wings to the owner without exposing other squadrons' (which are now
+        // attributed via created_by).
+        || w.created_by == null,
     );
     return mine.length ? mine : wings;
   }, [wings, me]);
@@ -119,7 +126,8 @@ export default function App() {
           </nav>
         )}
         <span className="spacer" />
-        {myWings.length > 1 && (
+        {activeWing && (myWings.length > 1 ? (
+          // 2+ wings: a real switcher.
           <select
             className="wing-switch"
             value={activeWing?.id || ''}
@@ -134,7 +142,13 @@ export default function App() {
               return <option key={w.id} value={w.id}>{dupe ? `${label} #${w.id}` : label}</option>;
             })}
           </select>
-        )}
+        ) : (
+          // Single wing: still show which wing you're in, so the context (and
+          // where a switcher would appear) is always visible.
+          <span className="wing-label muted small" title="Your active wing" style={{ marginRight: 8, fontWeight: 700 }}>
+            {activeWing.tag || activeWing.name}
+          </span>
+        ))}
         <div className="role-pills">
           {me.isAdmin && <span className="badge admin">ADMIN</span>}
           {me.role === 'commander' && !me.isAdmin && <span className="badge commander">CO</span>}
