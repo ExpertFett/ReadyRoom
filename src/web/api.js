@@ -166,6 +166,10 @@ export function apiRouter() {
     });
   };
 
+  // The wing's own ingest URL, sent to the Ops Bot in every publish so the bot
+  // can auto-wire its sign-up click-back channel (no separate config needed).
+  const signupCallback = (wing) => `${getBaseUrl()}/ingest/${getWingIngestToken(wing.id)}`;
+
   // Push the current event roster to the Ops Bot panel so site-originated
   // sign-up changes reflect on the Discord message. No-op if the event isn't
   // wired to a published panel. Fire-and-forget; never blocks the response.
@@ -176,6 +180,7 @@ export function apiRouter() {
     if (!wing?.ops_bot_url || !wing?.ops_bot_token || wing.discord_paused) return;
     opsbotEditEvent(wing, ev.discord_message_id, {
       readyroom_event_id: ev.id,
+      signup_callback_url: signupCallback(wing),
       title: ev.title, description: ev.description, kind: ev.kind,
       start_at: ev.start_at, roles: ev.roles, taskings: ev.taskings,
       signups: getEventSignups(ev.id),
@@ -1115,6 +1120,7 @@ export function apiRouter() {
     if (wing.ops_bot_url && wing.ops_bot_token && !wing.discord_paused) {
       opsbotPublishEvent(wing, {
         readyroom_event_id: event.id,
+        signup_callback_url: signupCallback(wing),
         title: event.title,
         description: event.description,
         kind: event.kind,
@@ -1192,6 +1198,7 @@ export function apiRouter() {
     if (wing?.ops_bot_url && wing?.ops_bot_token && !wing?.discord_paused && updated.discord_message_id) {
       opsbotEditEvent(wing, updated.discord_message_id, {
         readyroom_event_id: updated.id,
+        signup_callback_url: signupCallback(wing),
         title: updated.title, description: updated.description, kind: updated.kind,
         start_at: updated.start_at, roles: updated.roles, taskings: updated.taskings,
         url: `${getBaseUrl()}/events/${updated.id}`,
@@ -1227,6 +1234,7 @@ export function apiRouter() {
     if (e.discord_message_id) await opsbotDeleteEvent(wing, e.discord_message_id).catch(() => {});
     const r = await opsbotPublishEvent(wing, {
       readyroom_event_id: e.id,
+      signup_callback_url: signupCallback(wing),
       title: e.title, description: e.description, kind: e.kind,
       start_at: e.start_at, roles: e.roles, taskings: e.taskings,
       signups: getEventSignups(e.id),
