@@ -180,6 +180,15 @@ export default function EventDetail() {
 
       {event.description && !editing && <div className="card" style={{ whiteSpace: 'pre-wrap', marginBottom: 14 }}>{event.description}</div>}
 
+      {/* Post-mission AAR pushed back from the planner (OPT ⇄ RR loop). Pilots
+          who flew are also marked Present in the attendance table below. */}
+      {event.result_summary && (
+        <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid #3fb950' }}>
+          <div className="between"><h3 style={{ margin: 0 }}>🛬 Mission results</h3><span className="badge cap">Flown</span></div>
+          <div style={{ whiteSpace: 'pre-wrap', marginTop: 8 }}>{event.result_summary}</div>
+        </div>
+      )}
+
       {event.roles?.length > 0 && <FlightRoster event={event} me={me} onChange={load} />}
 
       {!event.roster?.length ? (

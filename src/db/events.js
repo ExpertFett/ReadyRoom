@@ -1,4 +1,4 @@
-import db, { ensureColumn } from './index.js';
+import db, { ensureColumn, resolveAlias } from './index.js';
 
 // --- schema -------------------------------------------------------------
 db.exec(`
@@ -80,6 +80,14 @@ db.exec(`
 //   taskings = { "<flight/group name>": "STRIKE" | "SEAD" | ... }
 ensureColumn('events', 'roles', 'TEXT');
 ensureColumn('events', 'taskings', 'TEXT');
+// Optional link back to the mission this event was published from (OPT ⇄ RR
+// loop). Plain INTEGER (no FK) so the ALTER is portable; the share endpoint
+// resolves the mission itself and tolerates a dangling id. null = standalone
+// event not generated from a mission.
+ensureColumn('events', 'mission_id', 'INTEGER');
+// Post-mission AAR summary pushed back from the planner (OPT ⇄ RR loop, hop 7).
+// Free text shown on the event page once a mission has flown.
+ensureColumn('events', 'result_summary', 'TEXT');
 
 const EVENT_KINDS = ['squadron', 'extra_credit'];
 const ATTEND_STATUS = ['present', 'absent', 'excused', 'extra_credit', 'ua'];
@@ -88,8 +96,8 @@ const LOA_STATUS = ['requested', 'approved', 'denied'];
 // --- events CRUD --------------------------------------------------------
 const insertEvent = db.prepare(`
   INSERT INTO events (wing_id, squadron_id, title, description, kind, start_at, end_at,
-    multi_squadron, track_attendance, roles, taskings, created_by, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    multi_squadron, track_attendance, roles, taskings, mission_id, created_by, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectEvent = db.prepare('SELECT * FROM events WHERE id = ?');
 const updateEventStmt = db.prepare(`
@@ -139,6 +147,7 @@ const normEvent = (d) => ({
   track_attendance: d.track_attendance === false ? 0 : 1,
   roles: normRoles(d.roles),
   taskings: normTaskings(d.taskings),
+  mission_id: d.mission_id ? Number(d.mission_id) : null,
 });
 
 export function createEvent(wingId, d, createdBy = null) {
@@ -147,7 +156,7 @@ export function createEvent(wingId, d, createdBy = null) {
   const info = insertEvent.run(
     wingId, e.squadron_id, e.title, e.description, e.kind, e.start_at, e.end_at,
     e.multi_squadron, e.track_attendance, JSON.stringify(e.roles), JSON.stringify(e.taskings),
-    createdBy, now, now
+    e.mission_id, createdBy, now, now
   );
   return parseEvent(selectEvent.get(Number(info.lastInsertRowid)));
 }
@@ -202,6 +211,70 @@ export function getEventSignups(eventId) {
 const countRoleSignupsStmt = db.prepare('SELECT COUNT(*) AS n FROM event_signups WHERE event_id = ? AND role_label = ?');
 export function countEventRoleSignups(eventId, roleLabel) {
   return countRoleSignupsStmt.get(eventId, String(roleLabel)).n;
+}
+
+// --- OPT ⇄ RR loop: mission-linked event lookups ------------------------
+// The single event published from a mission (most recent wins if re-published).
+const selectEventByMission = db.prepare('SELECT * FROM events WHERE mission_id = ? ORDER BY created_at DESC LIMIT 1');
+export function getEventByMission(missionId) {
+  if (!missionId) return null;
+  return parseEvent(selectEventByMission.get(Number(missionId)));
+}
+
+// Signups shaped for the planner share feed: includes the member's NAME and
+// modex (getEventSignups omits name), plus the role_label so the share endpoint
+// can group seats back onto their flight. Guests (member_id null) fall back to
+// display_name. Seat order = sign-up time.
+const selectEventSignupsForShare = db.prepare(`
+  SELECT s.role_label, s.member_id, s.display_name, s.source,
+         m.name, m.callsign, m.modex
+  FROM event_signups s
+  LEFT JOIN members m ON m.id = s.member_id
+  WHERE s.event_id = ?
+  ORDER BY s.created_at ASC, s.id ASC
+`);
+export function getEventSignupsForShare(eventId) {
+  return selectEventSignupsForShare.all(eventId);
+}
+
+const setEventResultStmt = db.prepare('UPDATE events SET result_summary = ?, updated_at = ? WHERE id = ?');
+export function setEventResult(eventId, summary) {
+  setEventResultStmt.run(summary ? String(summary).slice(0, 4000) : null, Date.now(), eventId);
+}
+
+// Record a post-mission result pushed from the planner (hop 7 of the OPT ⇄ RR
+// loop). `participants` = [{ pilot, callsign, modex }] — the pilots who flew.
+// Each is matched to a roster member, FIRST against this event's sign-ups (the
+// names round-trip from the share feed) then via the pilot-alias bridge, and
+// marked PRESENT. Stores the free-text summary. Returns marked vs unmatched
+// labels so the caller can report coverage.
+export function recordMissionResult(event, participants, summary) {
+  const signups = getEventSignupsForShare(event.id);
+  const norm = (s) => String(s || '').trim().toLowerCase();
+  const marked = [];
+  const unmatched = [];
+  for (const p of (Array.isArray(participants) ? participants : []).slice(0, 200)) {
+    const pilot = norm(p.pilot || p.name);
+    const callsign = norm(p.callsign);
+    const modex = norm(p.modex);
+    let memberId = null;
+    const hit = signups.find((s) => s.member_id != null && (
+      (pilot && (norm(s.name) === pilot || norm(s.display_name) === pilot || norm(s.callsign) === pilot)) ||
+      (callsign && norm(s.callsign) === callsign) ||
+      (modex && norm(s.modex) === modex)
+    ));
+    if (hit) memberId = hit.member_id;
+    if (!memberId && (p.pilot || p.name)) memberId = resolveAlias(p.pilot || p.name);
+    const label = p.callsign || p.pilot || p.name || '?';
+    if (memberId) {
+      try { markAttendance(event.id, memberId, 'present', { recordedBy: 'opt-aar' }); marked.push(label); }
+      catch { unmatched.push(label); }
+    } else {
+      unmatched.push(label);
+    }
+  }
+  if (summary != null) setEventResult(event.id, summary);
+  return { marked, unmatched };
 }
 
 // Shared claim/toggle for a single slot — used by BOTH the site sign-up

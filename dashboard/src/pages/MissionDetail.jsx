@@ -19,6 +19,7 @@ export default function MissionDetail() {
   const [m, setM] = useState(null);
   const [squadrons, setSquadrons] = useState([]);
   const [editing, setEditing] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const load = async () => {
     const mission = await api.get(`/api/missions/${id}`);
@@ -36,6 +37,36 @@ export default function MissionDetail() {
     navigate('/missions');
   };
 
+  // Publish (or re-sync) this mission as a sign-up event: turns each flight
+  // seat into a signup slot, posts it to Discord via the Ops Bot, and links the
+  // event so the planner's share link then pulls who actually signed up.
+  const publishEvent = async () => {
+    try {
+      const event = await api.post(`/api/missions/${m.id}/publish-event`);
+      navigate(`/events/${event.id}`);
+    } catch {
+      alert('Could not publish this mission as an event.');
+    }
+  };
+
+  // Mint + copy the public sign-up link an event runner pastes into the
+  // DCS:OPT planner's "Import from Ready Room" to auto-fill the sign-up sheet.
+  // The link embeds the wing's ingest token — treat it as wing-confidential.
+  const copyShareLink = async () => {
+    try {
+      const { url } = await api.get(`/api/missions/${m.id}/share-link`);
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      } catch {
+        prompt('Copy this sign-up link (paste into the DCS:OPT planner):', url);
+      }
+    } catch {
+      alert('Could not generate the sign-up link.');
+    }
+  };
+
   return (
     <div>
       <div className="crumbs"><Link to="/missions">Missions</Link> / {m.name}</div>
@@ -48,6 +79,17 @@ export default function MissionDetail() {
         </div>
         {isAdmin && (
           <div className="row">
+            <button className="small primary" onClick={publishEvent}
+              title="Turn each flight seat into a Discord sign-up slot. Once pilots sign up, the planner's sign-up link pulls them in.">
+              {m.published_event_id ? 'Re-sync event' : 'Publish as event'}
+            </button>
+            {m.published_event_id && (
+              <Link className="small" to={`/events/${m.published_event_id}`} style={{ alignSelf: 'center' }}>Open event ↗</Link>
+            )}
+            <button className="small" onClick={copyShareLink}
+              title="Copy a sign-up link to paste into the DCS:OPT planner's “Import from Ready Room”">
+              {copied ? '✓ Link copied' : 'Copy sign-up link'}
+            </button>
             <button className="small" onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Edit'}</button>
             <button className="danger small" onClick={del}>Delete</button>
           </div>

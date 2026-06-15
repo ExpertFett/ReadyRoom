@@ -1,4 +1,5 @@
 import db from './index.js';
+import { getEventByMission, getEventSignupsForShare } from './events.js';
 
 // --- schema ---------------------------------------------------------------
 db.exec(`
@@ -304,6 +305,75 @@ export function getMissionFull(id) {
     flights,
     squadron_access: getMissionAccess(id),
     resources: selectResourcesByMission.all(id),
+    // The event this mission was published as, if any (OPT ⇄ RR loop). Lets the
+    // dashboard show "published" state + link to the event without a 2nd fetch.
+    published_event_id: getEventByMission(id)?.id || null,
+  };
+}
+
+// Read-only roster shaped for the tokened cross-origin share endpoint
+// (src/web/share.js → readyroom.mission_roster.v1). Unlike getMissionFull this
+// JOINs members for `modex` (hull number), which getFlightSignups omits, and
+// exposes only the public-safe fields (name/callsign/modex/status) the OPT
+// planner needs to fill its sign-up sheet. Returns null when the mission id is
+// unknown; the caller (share.js) enforces wing ownership before emitting this.
+const selectSignupsForShare = db.prepare(`
+  SELECT m.name, m.callsign, m.modex, s.status
+  FROM mission_signups s JOIN members m ON m.id = s.member_id
+  WHERE s.flight_id = ? ORDER BY s.created_at ASC, s.id ASC
+`);
+export function getMissionRosterForShare(missionId) {
+  const mission = selectMission.get(missionId);
+  if (!mission) return null;
+  const flights = selectFlightsByMission.all(missionId);
+
+  // If this mission was published as an event, that event is the canonical
+  // sign-up surface — it's where BOTH Discord (via the bot → /ingest) and
+  // site-event sign-ups land. Source the roster from there so the planner
+  // sees who actually signed up. This is the OPT ⇄ RR loop keystone.
+  const event = getEventByMission(missionId);
+  if (event) {
+    // event roles carry group=<flight callsign>; fan signups back onto flights.
+    const byRole = new Map();
+    for (const s of getEventSignupsForShare(event.id)) {
+      if (!byRole.has(s.role_label)) byRole.set(s.role_label, []);
+      byRole.get(s.role_label).push(s);
+    }
+    return {
+      mission,
+      flights: flights.map((f) => {
+        const signups = [];
+        for (const role of (event.roles || [])) {
+          if (role.group !== f.callsign) continue;
+          for (const s of (byRole.get(role.label) || [])) {
+            signups.push({
+              name: s.name || s.display_name || null,
+              callsign: s.callsign || null,
+              modex: s.modex || null,
+              status: 'signed',
+            });
+          }
+        }
+        return { callsign: f.callsign, aircraft: f.aircraft, role: f.role, slots: f.slots, signups };
+      }),
+    };
+  }
+
+  // Unpublished mission → fall back to direct mission_signups (site FlightCard).
+  return {
+    mission,
+    flights: flights.map((f) => ({
+      callsign: f.callsign,
+      aircraft: f.aircraft,
+      role: f.role,
+      slots: f.slots,
+      signups: selectSignupsForShare.all(f.id).map((s) => ({
+        name: s.name,
+        callsign: s.callsign,
+        modex: s.modex,
+        status: s.status,
+      })),
+    })),
   };
 }
 

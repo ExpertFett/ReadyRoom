@@ -8,6 +8,7 @@ import { SqliteSessionStore } from './sessionStore.js';
 import { authRouter } from './auth.js';
 import { apiRouter } from './api.js';
 import { ingestRouter } from './ingest.js';
+import { shareRouter } from './share.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', '..', 'dashboard', 'dist');
@@ -38,6 +39,7 @@ export function startWebServer() {
   app.use('/auth', authRouter);
   app.use('/api', apiRouter());
   app.use('/ingest', ingestRouter()); // public, token-authed sortie hook
+  app.use('/share', shareRouter());   // public, token-authed, CORS read-only roster (planner consumes)
   app.get('/healthz', (req, res) => res.json({ ok: true }));
 
   if (existsSync(DIST_DIR)) {
@@ -47,7 +49,7 @@ export function startWebServer() {
       // API-ish paths that fell through their routers are real 404s — return
       // JSON, not the SPA shell. Without this, an unmatched GET /api/* came
       // back as index.html with HTTP 200 and the frontend "succeeded" on HTML.
-      if (/^\/(api|auth|ingest)\//.test(req.path)) {
+      if (/^\/(api|auth|ingest|share)\//.test(req.path)) {
         return res.status(404).json({ error: 'not_found' });
       }
       res.sendFile(join(DIST_DIR, 'index.html'));

@@ -42,7 +42,7 @@ import {
   createLOA, getLOA, setLOAStatus, deleteLOA, getUpcomingLOAs, getMemberLOAs,
   getAttendanceMetrics, getAttendanceTimeseries, getPilotPerformance, setEventDiscord,
   setEventSignup, removeEventSignup, removeAllEventSignupsForUser, getEventSignups, countEventRoleSignups,
-  claimEventSlot,
+  claimEventSlot, getEventByMission,
 } from '../db/events.js';
 import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
 import {
@@ -910,6 +910,81 @@ export function apiRouter() {
     const m = getMissionFull(Number(req.params.id));
     if (!m) return res.status(404).json({ error: 'not_found' });
     res.json(m);
+  });
+  // Mint the public, tokened sign-up link an admin pastes into the DCS:OPT
+  // planner's "Import from Ready Room". Reuses the wing's ingest_token as the
+  // path credential (see src/web/share.js). Wing access is enforced by the
+  // /missions/:id resource guard above; requireAdmin gates minting. The link is
+  // wing-confidential — rotating the wing's ingest token invalidates it.
+  router.get('/missions/:id/share-link', requireAdmin, (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    const token = getWingIngestToken(m.wing_id);
+    res.json({ url: `${getBaseUrl()}/share/${token}/missions/${m.id}/roster` });
+  });
+
+  // Publish (or re-sync) a mission as a sign-up event — the OPT ⇄ RR loop
+  // keystone. Generates one signup slot per flight seat (group = flight
+  // callsign, label "<callsign> 1-<seat>" to match the planner's voice-callsign
+  // convention), links the event back to the mission, and fans it out to the
+  // Ops Bot like POST /api/events. Once published, the mission's share link
+  // (consumed by the planner) sources its roster from this event's signups —
+  // so Discord sign-ups flow straight through to OPT.
+  router.post('/missions/:id/publish-event', requireAdmin, (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+
+    const roles = [];
+    const taskings = {};
+    m.flights.forEach((f, idx) => {
+      const group = f.callsign || `Flight ${idx + 1}`;
+      if (f.role) taskings[group] = f.role;
+      const seats = Math.max(1, Number(f.slots) || 1);
+      for (let seat = 1; seat <= seats; seat++) {
+        roles.push({ label: `${group} 1-${seat}`, group, limit: 1 });
+      }
+    });
+
+    const existing = getEventByMission(m.id);
+    let event;
+    if (existing) {
+      // Re-sync roles/taskings from the (possibly edited) flights while
+      // preserving the event's own title/description/schedule. Signups on
+      // unchanged seat labels survive.
+      event = updateEvent(existing.id, {
+        squadron_id: existing.squadron_id, title: existing.title, description: existing.description,
+        kind: existing.kind, start_at: existing.start_at, end_at: existing.end_at,
+        multi_squadron: !!existing.multi_squadron, track_attendance: existing.track_attendance !== 0,
+        roles, taskings,
+      });
+    } else {
+      event = createEvent(m.wing_id, {
+        title: m.name,
+        description: m.description || `Sign-up for ${m.name}.`,
+        kind: 'squadron',
+        start_at: m.start_at || Date.now(),
+        roles, taskings, mission_id: m.id,
+      }, getActor(req).user?.id || null);
+    }
+
+    // Fire-and-forget Discord publish/edit if the wing's Ops Bot is wired.
+    const wing = getWing(m.wing_id);
+    if (wing?.ops_bot_url && wing?.ops_bot_token && !wing?.discord_paused) {
+      const panel = {
+        readyroom_event_id: event.id, signup_callback_url: signupCallback(wing),
+        title: event.title, description: event.description, kind: event.kind,
+        start_at: event.start_at, roles: event.roles, taskings: event.taskings,
+        url: `${getBaseUrl()}/events/${event.id}`,
+      };
+      if (existing?.discord_message_id) {
+        opsbotEditEvent(wing, existing.discord_message_id, panel);
+      } else {
+        opsbotPublishEvent(wing, panel).then((r) => { if (r) setEventDiscord(event.id, r.channel_id, r.message_id); });
+      }
+    }
+
+    audit(req, m.wing_id, existing ? 'updated' : 'created', 'event', event.id, `Published mission as event: ${event.title}`);
+    res.json(event);
   });
   router.put('/missions/:id', requireAdmin, (req, res) => {
     const m = getMissionFull(Number(req.params.id));
