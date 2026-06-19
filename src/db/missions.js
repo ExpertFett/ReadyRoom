@@ -318,7 +318,7 @@ export function getMissionFull(id) {
 // planner needs to fill its sign-up sheet. Returns null when the mission id is
 // unknown; the caller (share.js) enforces wing ownership before emitting this.
 const selectSignupsForShare = db.prepare(`
-  SELECT m.name, m.callsign, m.modex, s.status
+  SELECT m.name, m.callsign, m.modex, m.livery, s.status
   FROM mission_signups s JOIN members m ON m.id = s.member_id
   WHERE s.flight_id = ? ORDER BY s.created_at ASC, s.id ASC
 `);
@@ -350,6 +350,7 @@ export function getMissionRosterForShare(missionId) {
               name: s.name || s.display_name || null,
               callsign: s.callsign || null,
               modex: s.modex || null,
+              livery: s.livery || null,
               status: 'signed',
             });
           }
@@ -371,6 +372,7 @@ export function getMissionRosterForShare(missionId) {
         name: s.name,
         callsign: s.callsign,
         modex: s.modex,
+        livery: s.livery || null,
         status: s.status,
       })),
     })),

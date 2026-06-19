@@ -114,6 +114,7 @@ export function ensureColumn(table, column, type) {
 
 // --- Epic 1: roster & org depth ---
 ensureColumn('members', 'modex', 'TEXT');                              // hull/side number, e.g. "412"
+ensureColumn('members', 'livery', 'TEXT');                            // DCS livery/skin id, painted on the jet in OPT
 ensureColumn('members', 'subdivision', "TEXT NOT NULL DEFAULT 'main'"); // main|ready_reserve|candidate|frs
 ensureColumn('squadrons', 'kind', "TEXT NOT NULL DEFAULT 'squadron'");  // squadron|detachment
 ensureColumn('quals', 'is_tier', 'INTEGER NOT NULL DEFAULT 0');        // counts toward readiness tier
@@ -383,10 +384,10 @@ export function deleteSquadron(id) {
 // Members
 // ---------------------------------------------------------------------------
 const MEMBER_FIELDS =
-  'wing_id, squadron_id, discord_user_id, callsign, name, rank, billet, airframes, status, app_role, notes, joined_at, modex, subdivision, capabilities';
+  'wing_id, squadron_id, discord_user_id, callsign, name, rank, billet, airframes, status, app_role, notes, joined_at, modex, subdivision, capabilities, livery';
 const insertMember = db.prepare(`
   INSERT INTO members (${MEMBER_FIELDS}, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectMember = db.prepare('SELECT * FROM members WHERE id = ?');
 const selectMembersByWing = db.prepare(
@@ -401,7 +402,7 @@ const selectMemberByDiscord = db.prepare(
 const updateMemberStmt = db.prepare(`
   UPDATE members SET squadron_id = ?, discord_user_id = ?, callsign = ?, name = ?,
     rank = ?, billet = ?, airframes = ?, status = ?, app_role = ?, notes = ?,
-    joined_at = ?, modex = ?, subdivision = ?, capabilities = ?, updated_at = ?
+    joined_at = ?, modex = ?, subdivision = ?, capabilities = ?, livery = ?, updated_at = ?
   WHERE id = ?
 `);
 const deleteMemberStmt = db.prepare('DELETE FROM members WHERE id = ?');
@@ -421,6 +422,7 @@ const normMember = (d) => ({
   modex: d.modex != null && String(d.modex) !== '' ? String(d.modex).slice(0, 12) : null,
   subdivision: ['main', 'ready_reserve', 'candidate', 'frs'].includes(d.subdivision) ? d.subdivision : 'main',
   capabilities: normCapabilities(d.capabilities),
+  livery: d.livery != null && String(d.livery) !== '' ? String(d.livery).slice(0, 80) : null,
 });
 
 // Accepts a CSV string, an array of strings, or null. Returns CSV (or null).
@@ -439,7 +441,7 @@ export function createMember(wingId, d) {
   const info = insertMember.run(
     wingId, m.squadron_id, m.discord_user_id, m.callsign, m.name, m.rank, m.billet,
     m.airframes, m.status, m.app_role, m.notes, m.joined_at, m.modex, m.subdivision,
-    m.capabilities, now, now
+    m.capabilities, m.livery, now, now
   );
   const memberId = Number(info.lastInsertRowid);
   // Auto-assign any "Basic" quals defined for this wing — those are quals the
@@ -482,7 +484,7 @@ export function updateMember(id, d) {
   updateMemberStmt.run(
     m.squadron_id, m.discord_user_id, m.callsign, m.name, m.rank, m.billet,
     m.airframes, m.status, m.app_role, m.notes, m.joined_at, m.modex, m.subdivision,
-    m.capabilities, Date.now(), id
+    m.capabilities, m.livery, Date.now(), id
   );
   return getMember(id);
 }

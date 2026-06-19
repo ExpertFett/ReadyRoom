@@ -227,7 +227,7 @@ export function getEventByMission(missionId) {
 // display_name. Seat order = sign-up time.
 const selectEventSignupsForShare = db.prepare(`
   SELECT s.role_label, s.member_id, s.display_name, s.source,
-         m.name, m.callsign, m.modex
+         m.name, m.callsign, m.modex, m.livery
   FROM event_signups s
   LEFT JOIN members m ON m.id = s.member_id
   WHERE s.event_id = ?

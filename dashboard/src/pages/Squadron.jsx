@@ -153,7 +153,7 @@ function DetachmentRoster({ sqn }) {
 
 function AddMember({ sqn, onDone }) {
   const [f, setF] = useState({
-    callsign: '', name: '', rank: '', billet: '', modex: '',
+    callsign: '', name: '', rank: '', billet: '', modex: '', livery: '',
     airframes: sqn.aircraft || '', subdivision: 'main', status: 'active',
   });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -169,6 +169,7 @@ function AddMember({ sqn, onDone }) {
         <div className="field"><label>Callsign</label><input value={f.callsign} onChange={set('callsign')} placeholder="Maverick" /></div>
         <div className="field"><label>Name</label><input value={f.name} onChange={set('name')} placeholder="Pete Mitchell" /></div>
         <div className="field"><label>Modex</label><input value={f.modex} onChange={set('modex')} placeholder="400" /></div>
+        <div className="field"><label>Livery</label><input value={f.livery} onChange={set('livery')} placeholder="DCS livery / skin name" /></div>
         <div className="field"><label>Rank</label><input value={f.rank} onChange={set('rank')} placeholder="LT" /></div>
         <div className="field"><label>Billet</label><input value={f.billet} onChange={set('billet')} placeholder="Pilot / CO / OPSO" /></div>
         <div className="field"><label>Airframes</label><input value={f.airframes} onChange={set('airframes')} /></div>
