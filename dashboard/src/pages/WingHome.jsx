@@ -6,6 +6,7 @@ import { useMe } from '../App.jsx';
 export default function WingHome() {
   const { me, wings, wingsLoaded, activeWing, reload, reloadWings } = useMe();
   const [wing, setWing] = useState(null);
+  const [editingWing, setEditingWing] = useState(false);
   const navigate = useNavigate();
 
   // Show the full detail (incl. squadrons) for whichever wing is selected in
@@ -31,7 +32,12 @@ export default function WingHome() {
           <h1>{wing.tag ? `${wing.tag} — ` : ''}{wing.name}</h1>
           {wing.description && <p className="muted">{wing.description}</p>}
         </div>
+        {me.isAdmin && <button className="small" onClick={() => setEditingWing((v) => !v)}>{editingWing ? 'Cancel' : 'Edit wing'}</button>}
       </div>
+
+      {editingWing && (
+        <EditWing wing={wing} onDone={async () => { setEditingWing(false); await loadWing(); await reloadWings(); }} />
+      )}
 
       <Squadrons wing={wing} isAdmin={me.isAdmin} reload={loadWing} />
       <Quals wingId={wing.id} isAdmin={me.isAdmin} />
@@ -120,6 +126,31 @@ function SetupWing({ onCreated }) {
         {err && <p className="error" style={{ marginTop: 10 }}>{err}</p>}
       </form>
     </div>
+  );
+}
+
+// Edit wing name / tag / description. Backend: PUT /api/wings/:id.
+function EditWing({ wing, onDone }) {
+  const [f, setF] = useState({ name: wing.name || '', tag: wing.tag || '', description: wing.description || '' });
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const save = async (e) => {
+    e.preventDefault();
+    if (!f.name.trim()) return;
+    setBusy(true);
+    try { await api.put(`/api/wings/${wing.id}`, f); await onDone(); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form className="card" onSubmit={save} style={{ marginBottom: 14 }}>
+      <h3 style={{ marginTop: 0 }}>Edit wing</h3>
+      <div className="form-grid">
+        <div className="field"><label>Name *</label><input value={f.name} onChange={set('name')} /></div>
+        <div className="field"><label>Tag</label><input value={f.tag} onChange={set('tag')} placeholder="CVW-1" /></div>
+      </div>
+      <div className="field"><label>Description</label><input value={f.description} onChange={set('description')} /></div>
+      <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+    </form>
   );
 }
 

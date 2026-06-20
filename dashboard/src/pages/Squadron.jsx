@@ -44,12 +44,15 @@ export default function Squadron() {
         </div>
         {me.isAdmin && (
           <div className="row">
+            <button className="small" onClick={() => setPanel(panel === 'edit' ? null : 'edit')}>{panel === 'edit' ? 'Cancel' : 'Edit'}</button>
             <button className="small" onClick={() => setPanel(panel === 'add' ? null : 'add')}>+ Member</button>
             {isDet && <button className="small" onClick={() => setPanel(panel === 'attach' ? null : 'attach')}>Attach pilot</button>}
             <button className="small" onClick={() => setPanel(panel === 'import' ? null : 'import')}>Import CSV</button>
           </div>
         )}
       </div>
+
+      {panel === 'edit' && <EditSquadron sqn={sqn} onDone={reload} />}
 
       <Readiness readiness={sqn.readiness} />
 
@@ -63,6 +66,40 @@ export default function Squadron() {
         <SquadronRoster sqn={sqn} />
       )}
     </div>
+  );
+}
+
+// Edit a squadron's particulars. Backend: PUT /api/squadrons/:id.
+function EditSquadron({ sqn, onDone }) {
+  const [f, setF] = useState({
+    name: sqn.name || '', tag: sqn.tag || '', aircraft: sqn.aircraft || '',
+    description: sqn.description || '', kind: sqn.kind || 'squadron',
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const save = async (e) => {
+    e.preventDefault();
+    if (!f.name.trim()) return;
+    setBusy(true);
+    try { await api.put(`/api/squadrons/${sqn.id}`, f); onDone(); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form className="card" onSubmit={save} style={{ marginBottom: 14 }}>
+      <h3 style={{ marginTop: 0 }}>Edit squadron</h3>
+      <div className="form-grid">
+        <div className="field"><label>Name *</label><input value={f.name} onChange={set('name')} /></div>
+        <div className="field"><label>Tag</label><input value={f.tag} onChange={set('tag')} placeholder="VF-1" /></div>
+      </div>
+      <div className="field"><label>Primary aircraft</label><input value={f.aircraft} onChange={set('aircraft')} placeholder="F-14B Tomcat" /></div>
+      <div className="field"><label>Description</label><input value={f.description} onChange={set('description')} /></div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={f.kind === 'detachment'}
+          onChange={(e) => setF({ ...f, kind: e.target.checked ? 'detachment' : 'squadron' })} />
+        This is a detachment
+      </label>
+      <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+    </form>
   );
 }
 

@@ -17,6 +17,7 @@ export default function CarrierDetail() {
   const [carrier, setCarrier] = useState(null);
   const [members, setMembers] = useState([]);
   const [logging, setLogging] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const load = async () => {
     setCarrier(await api.get(`/api/carriers/${id}`));
@@ -36,9 +37,15 @@ export default function CarrierDetail() {
           <h1>{carrier.name} {carrier.hull && <span className="muted">{carrier.hull}</span>}</h1>
           <p className="small muted">{carrier.class || '—'} class</p>
         </div>
-        {me.isAdmin && <button className="primary" onClick={() => setLogging((v) => !v)}>{logging ? 'Cancel' : '+ Log trap'}</button>}
+        {me.isAdmin && (
+          <div className="row">
+            <button className="small" onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Edit'}</button>
+            <button className="primary" onClick={() => setLogging((v) => !v)}>{logging ? 'Cancel' : '+ Log trap'}</button>
+          </div>
+        )}
       </div>
 
+      {editing && <EditCarrier carrier={carrier} onDone={() => { setEditing(false); load(); }} />}
       {logging && <LogTrap carrierId={carrier.id} members={members} onDone={() => { setLogging(false); load(); }} />}
 
       <section>
@@ -74,6 +81,32 @@ export default function CarrierDetail() {
         )}
       </section>
     </div>
+  );
+}
+
+// Edit an existing carrier's particulars (name/hull/class/notes).
+function EditCarrier({ carrier, onDone }) {
+  const [f, setF] = useState({ name: carrier.name || '', hull: carrier.hull || '', class: carrier.class || '', notes: carrier.notes || '' });
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const save = async (e) => {
+    e.preventDefault();
+    if (!f.name.trim()) return;
+    setBusy(true);
+    try { await api.put(`/api/carriers/${carrier.id}`, f); onDone(); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form className="card" onSubmit={save} style={{ marginTop: 14 }}>
+      <h3 style={{ marginTop: 0 }}>Edit carrier</h3>
+      <div className="form-grid">
+        <div className="field"><label>Name *</label><input value={f.name} onChange={set('name')} /></div>
+        <div className="field"><label>Hull</label><input value={f.hull} onChange={set('hull')} placeholder="CVN-72" /></div>
+        <div className="field"><label>Class</label><input value={f.class} onChange={set('class')} placeholder="Nimitz" /></div>
+      </div>
+      <div className="field"><label>Notes</label><textarea rows={2} value={f.notes} onChange={set('notes')} /></div>
+      <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+    </form>
   );
 }
 
