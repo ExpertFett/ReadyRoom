@@ -39,7 +39,7 @@ import {
 import {
   createEvent, getEvent, updateEvent, deleteEvent, getEventsInRange,
   markAttendance, clearAttendance, getEventAttendance, getEventRoster,
-  createLOA, getLOA, setLOAStatus, deleteLOA, getUpcomingLOAs, getMemberLOAs,
+  createLOA, getLOA, setLOAStatus, updateLOA, deleteLOA, getUpcomingLOAs, getMemberLOAs,
   getAttendanceMetrics, getAttendanceTimeseries, getPilotPerformance, setEventDiscord,
   setEventSignup, removeEventSignup, removeAllEventSignupsForUser, getEventSignups, countEventRoleSignups,
   claimEventSlot, getEventByMission,
@@ -1367,10 +1367,16 @@ export function apiRouter() {
   router.put('/loas/:id', requireAdmin, (req, res) => {
     const loa = getLOA(Number(req.params.id));
     if (!loa) return res.status(404).json({ error: 'not_found' });
+    const b = req.body || {};
     try {
-      const updated = setLOAStatus(loa.id, req.body?.status, getActor(req).user?.id);
+      let updated = loa;
+      // Edit dates/reason (separate from approve/deny).
+      if (b.start_at !== undefined || b.end_at !== undefined || b.reason !== undefined) {
+        updated = updateLOA(loa.id, { start_at: ms(b.start_at), end_at: ms(b.end_at), reason: str(b.reason, 500) });
+      }
+      if (b.status) updated = setLOAStatus(loa.id, b.status, getActor(req).user?.id);
       const wid = wingOf('loa', loa.id);
-      if (wid != null) audit(req, wid, req.body?.status || 'updated', 'loa', loa.id, `LOA ${req.body?.status || 'updated'}`);
+      if (wid != null) audit(req, wid, b.status || 'updated', 'loa', loa.id, `LOA ${b.status || 'edited'}`);
       res.json(updated);
     } catch (err) {
       res.status(400).json({ error: err.message || 'bad_request' });

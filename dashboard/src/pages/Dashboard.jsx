@@ -155,6 +155,7 @@ function scaleBoarding(r) {
 function LOAPanel({ wing, me }) {
   const [list, setList] = useState([]);
   const [requesting, setRequesting] = useState(false);
+  const [editId, setEditId] = useState(null);
   const load = async () => {
     if (!wing) return;
     setList(await api.get(`/api/wings/${wing.id}/loas`));
@@ -165,9 +166,10 @@ function LOAPanel({ wing, me }) {
   return (
     <section style={{ marginTop: 8 }}>
       <div className="between"><h2>Leave of absence</h2>
-        {me.member && <button className="small" onClick={() => setRequesting((v) => !v)}>{requesting ? 'Cancel' : 'Request LOA'}</button>}
+        {me.member && <button className="small" onClick={() => { setRequesting((v) => !v); setEditId(null); }}>{requesting ? 'Cancel' : 'Request LOA'}</button>}
       </div>
       {requesting && me.member && <LOAForm memberId={me.member.id} onDone={() => { setRequesting(false); load(); }} />}
+      {editId && <LOAForm existing={list.find((l) => l.id === editId)} onDone={() => { setEditId(null); load(); }} />}
       {!list.length ? <div className="empty">No upcoming LOAs.</div> : (
         <div className="card">
           {list.map((l) => (
@@ -186,6 +188,7 @@ function LOAPanel({ wing, me }) {
                     <button className="small" onClick={() => approve(l.id, 'denied')}>Deny</button>
                   </>
                 )}
+                {me.isAdmin && <button className="small" onClick={() => { setEditId(l.id); setRequesting(false); }} title="Edit dates/reason">✎</button>}
                 {(me.isAdmin || (me.member && me.member.id === l.member_id)) && (
                   <button className="small danger" onClick={() => remove(l.id)}>×</button>
                 )}
@@ -198,12 +201,16 @@ function LOAPanel({ wing, me }) {
   );
 }
 
-function LOAForm({ memberId, onDone }) {
-  const [f, setF] = useState({ start_at: '', end_at: '', reason: '' });
+function LOAForm({ memberId, onDone, existing }) {
+  const toDate = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
+  const [f, setF] = useState(existing
+    ? { start_at: toDate(existing.start_at), end_at: toDate(existing.end_at), reason: existing.reason || '' }
+    : { start_at: '', end_at: '', reason: '' });
   const submit = async (e) => {
     e.preventDefault();
     if (!f.start_at || !f.end_at) return;
-    await api.post(`/api/members/${memberId}/loas`, f);
+    if (existing) await api.put(`/api/loas/${existing.id}`, f);
+    else await api.post(`/api/members/${memberId}/loas`, f);
     onDone();
   };
   return (
@@ -213,7 +220,7 @@ function LOAForm({ memberId, onDone }) {
         <div className="field"><label>To</label><input type="date" value={f.end_at} onChange={(e) => setF({ ...f, end_at: e.target.value })} /></div>
       </div>
       <div className="field"><label>Reason</label><input value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} placeholder="Training detachment, leave, etc." /></div>
-      <button className="primary">Submit request</button>
+      <button className="primary">{existing ? 'Save changes' : 'Submit request'}</button>
     </form>
   );
 }

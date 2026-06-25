@@ -436,6 +436,19 @@ export function setLOAStatus(id, status, approverId = null) {
   updateLOAStmt.run(status, approverId, status === 'approved' ? Date.now() : null, Date.now(), id);
   return selectLOA.get(id);
 }
+const updateLOADetailsStmt = db.prepare('UPDATE loa_requests SET start_at = ?, end_at = ?, reason = ?, updated_at = ? WHERE id = ?');
+// Edit an LOA's dates/reason (distinct from approve/deny, which is setLOAStatus).
+export function updateLOA(id, { start_at, end_at, reason }) {
+  const cur = selectLOA.get(id);
+  if (!cur) return null;
+  updateLOADetailsStmt.run(
+    Number.isFinite(start_at) ? start_at : cur.start_at,
+    Number.isFinite(end_at) ? end_at : cur.end_at,
+    reason !== undefined ? (reason || null) : cur.reason,
+    Date.now(), id,
+  );
+  return selectLOA.get(id);
+}
 export function deleteLOA(id) { return deleteLOAStmt.run(id).changes; }
 export function getUpcomingLOAs(wingId) {
   return selectWingLOAs.all(wingId, Date.now() - 86400000);

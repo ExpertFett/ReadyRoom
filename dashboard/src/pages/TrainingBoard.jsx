@@ -27,6 +27,7 @@ export default function TrainingBoard() {
   const { qualId } = useParams();
   const { me } = useMe();
   const [board, setBoard] = useState(null);
+  const [editAct, setEditAct] = useState(null);
   const load = async () => setBoard(await api.get(`/api/quals/${qualId}/board`));
   useEffect(() => { load(); }, [qualId]);
 
@@ -89,7 +90,9 @@ export default function TrainingBoard() {
         {board.qual.currency_days ? ` · ${board.qual.currency_days}-day currency` : ''}
       </p>
 
-      {me.isAdmin && <AddActivity qualId={board.qual.id} onAdded={load} />}
+      {me.isAdmin && (editAct
+        ? <AddActivity existing={editAct} onAdded={() => { setEditAct(null); load(); }} onCancel={() => setEditAct(null)} />
+        : <AddActivity qualId={board.qual.id} onAdded={load} />)}
 
       {!board.activities.length ? (
         <div className="empty">No activities yet. Add some via the Manage tab on Qualifications.</div>
@@ -139,7 +142,8 @@ export default function TrainingBoard() {
                   <tr key={a.id}>
                     <td className="row-head">
                       <div>{a.name}
-                        {me.isAdmin && <button className="small danger" style={{ padding: '0 6px', marginLeft: 6, fontSize: 11 }} onClick={() => deleteAct(a.id)} title="Delete activity">×</button>}
+                        {me.isAdmin && <button className="small" style={{ padding: '0 6px', marginLeft: 6, fontSize: 11 }} onClick={() => setEditAct(a)} title="Edit activity">✎</button>}
+                        {me.isAdmin && <button className="small danger" style={{ padding: '0 6px', marginLeft: 4, fontSize: 11 }} onClick={() => deleteAct(a.id)} title="Delete activity">×</button>}
                       </div>
                     </td>
                     {orderedMembers.map((m) => {
@@ -190,23 +194,26 @@ function HoldStatus({ m }) {
   return <div className="small" style={{ color: '#4cd964', marginTop: 2 }}>Current</div>;
 }
 
-function AddActivity({ qualId, onAdded }) {
-  const [f, setF] = useState({ name: '', group_name: '', sort_order: '' });
+function AddActivity({ qualId, onAdded, existing, onCancel }) {
+  const [f, setF] = useState(existing
+    ? { name: existing.name || '', group_name: existing.group_name || '', sort_order: existing.sort_order ?? '' }
+    : { name: '', group_name: '', sort_order: '' });
   const submit = async (e) => {
     e.preventDefault();
     if (!f.name.trim()) return;
-    await api.post(`/api/quals/${qualId}/activities`, f);
-    setF({ name: '', group_name: '', sort_order: '' });
+    if (existing) await api.put(`/api/activities/${existing.id}`, f);
+    else { await api.post(`/api/quals/${qualId}/activities`, f); setF({ name: '', group_name: '', sort_order: '' }); }
     onAdded();
   };
   return (
     <form className="card" onSubmit={submit} style={{ marginBottom: 14 }}>
-      <h3 style={{ marginTop: 0 }}>Add activity</h3>
+      <h3 style={{ marginTop: 0 }}>{existing ? 'Edit activity' : 'Add activity'}</h3>
       <div className="row" style={{ alignItems: 'flex-end' }}>
         <div style={{ flex: 1, minWidth: 200 }}><label>Name *</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Case 1 Recovery" /></div>
         <div style={{ width: 160 }}><label>Group (optional)</label><input value={f.group_name} onChange={(e) => setF({ ...f, group_name: e.target.value })} placeholder="e.g. IADS · Phase 1" /></div>
         <div style={{ width: 90 }}><label>Order</label><input type="number" value={f.sort_order} onChange={(e) => setF({ ...f, sort_order: e.target.value })} placeholder="1" /></div>
-        <button className="small primary">Add</button>
+        <button className="small primary">{existing ? 'Save' : 'Add'}</button>
+        {existing && <button type="button" className="small" onClick={onCancel}>Cancel</button>}
       </div>
     </form>
   );
