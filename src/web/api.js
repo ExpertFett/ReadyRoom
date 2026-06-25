@@ -11,7 +11,7 @@ import {
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
   createQual, getQuals, getQual, deleteQual, updateQual, bulkAssignQuals,
   getModexPools, setModexPool, deleteModexPool, getAvailableModex,
-  getQualTracks, createQualTrack, deleteQualTrack,
+  getQualTracks, createQualTrack, updateQualTrack, deleteQualTrack,
   enrollPilot, unenrollPilot, getEnrollees,
   setMemberQual, getMemberQuals, removeMemberQual, memberHoldsQual,
   getRecentSorties, getMemberSorties, getUnmatchedAliases,
@@ -47,7 +47,7 @@ import {
 import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
 import {
   createCarrier, getCarriers, getCarrier, updateCarrier, deleteCarrier,
-  recordTrap, deleteTrap, getTrap,
+  recordTrap, deleteTrap, getTrap, updateTrap,
   getTrapsByCarrier, getTrapsByMember, getTrapsByEvent,
   getMemberBoardingStats, getWingGreenieBoard, TRAP_GRADES,
 } from '../db/carrier.js';
@@ -1587,6 +1587,18 @@ export function apiRouter() {
       res.status(400).json({ error: err.message || 'create_failed' });
     }
   });
+  router.put('/qual-tracks/:id', requireAdmin, (req, res) => {
+    const wid = wingOf('qual_track', Number(req.params.id));
+    if (wid == null) return res.status(404).json({ error: 'not_found' });
+    try {
+      const updated = updateQualTrack(Number(req.params.id), req.body || {});
+      if (!updated) return res.status(404).json({ error: 'not_found' });
+      audit(req, wid, 'updated', 'qual_track', updated.id, `Edited crew track "${updated.label}"`);
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err.message === 'duplicate_code' ? 'duplicate_code' : 'update_failed' });
+    }
+  });
   router.delete('/qual-tracks/:id', requireAdmin, (req, res) => {
     const wid = wingOf('qual_track', Number(req.params.id));
     const ok = deleteQualTrack(Number(req.params.id)) > 0;
@@ -1735,6 +1747,18 @@ export function apiRouter() {
       res.json(trap);
     } catch (err) {
       res.status(400).json({ error: err.message || 'record_failed' });
+    }
+  });
+  router.put('/traps/:id', requireAdmin, (req, res) => {
+    const t = getTrap(Number(req.params.id));
+    if (!t) return res.status(404).json({ error: 'not_found' });
+    try {
+      const updated = updateTrap(t.id, req.body || {});
+      audit(req, wingOf('trap', t.id), 'updated', 'trap', t.id,
+        `Trap edited: grade ${updated.grade}${updated.wire ? ` wire ${updated.wire}` : ''}`);
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err.message === 'bad_grade' ? 'bad_grade' : 'update_failed' });
     }
   });
   router.delete('/traps/:id', requireAdmin, (req, res) => {

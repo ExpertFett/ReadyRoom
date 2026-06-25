@@ -142,26 +142,31 @@ export default function ManageQuals({ wing }) {
 // already-saved quals (need the qual_id).
 function CrewTracks({ qualId }) {
   const [tracks, setTracks] = useState([]);
-  const [adding, setAdding] = useState({ code: '', label: '', sort_order: 0 });
+  const [form, setForm] = useState({ code: '', label: '', sort_order: 0 });
+  const [editingId, setEditingId] = useState(null);
 
   const load = () => api.get(`/api/quals/${qualId}/tracks`).then(setTracks);
   useEffect(() => { load(); }, [qualId]);
+  const reset = () => { setForm({ code: '', label: '', sort_order: 0 }); setEditingId(null); };
 
-  const add = async (e) => {
+  const save = async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!adding.code.trim() || !adding.label.trim()) return;
+    if (!form.code.trim() || !form.label.trim()) return;
     try {
-      await api.post(`/api/quals/${qualId}/tracks`, adding);
-      setAdding({ code: '', label: '', sort_order: 0 });
+      if (editingId) await api.put(`/api/qual-tracks/${editingId}`, form);
+      else await api.post(`/api/quals/${qualId}/tracks`, form);
+      reset();
       load();
     } catch (err) {
-      alert(`Add track failed: ${err.message}`);
+      alert(`Save track failed: ${err.message}`);
     }
   };
+  const startEdit = (t) => { setEditingId(t.id); setForm({ code: t.code, label: t.label, sort_order: t.sort_order || 0 }); };
   const remove = async (id) => {
     if (!confirm('Remove this track?')) return;
     await api.del(`/api/qual-tracks/${id}`);
+    if (editingId === id) reset();
     load();
   };
 
@@ -174,19 +179,21 @@ function CrewTracks({ qualId }) {
       {tracks.length > 0 && (
         <div className="chip-row" style={{ marginBottom: 8 }}>
           {tracks.map((t) => (
-            <span key={t.id} className="chip">
+            <span key={t.id} className="chip" style={editingId === t.id ? { outline: '1px solid var(--accent)' } : undefined}>
               <b>{t.code}</b> · {t.label}
-              <button type="button" onClick={() => remove(t.id)} title="Remove" style={{ marginLeft: 4 }}>×</button>
+              <button type="button" onClick={() => startEdit(t)} title="Edit" style={{ marginLeft: 4 }}>✎</button>
+              <button type="button" onClick={() => remove(t.id)} title="Remove" style={{ marginLeft: 2 }}>×</button>
             </span>
           ))}
         </div>
       )}
       <div className="row" style={{ gap: 6, alignItems: 'flex-end' }}>
         <div className="field" style={{ flex: '0 0 100px' }}><label>Code</label>
-          <input value={adding.code} onChange={(e) => setAdding({ ...adding, code: e.target.value })} placeholder="rio" /></div>
+          <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="rio" /></div>
         <div className="field" style={{ flex: 1 }}><label>Label</label>
-          <input value={adding.label} onChange={(e) => setAdding({ ...adding, label: e.target.value })} placeholder="RIO" /></div>
-        <button type="button" className="small" onClick={add}>+ Add track</button>
+          <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="RIO" /></div>
+        <button type="button" className="small" onClick={save}>{editingId ? 'Save' : '+ Add track'}</button>
+        {editingId && <button type="button" className="small" onClick={reset}>Cancel</button>}
       </div>
     </section>
   );

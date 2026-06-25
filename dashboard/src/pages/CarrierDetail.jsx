@@ -18,6 +18,7 @@ export default function CarrierDetail() {
   const [members, setMembers] = useState([]);
   const [logging, setLogging] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [editTrap, setEditTrap] = useState(null);
 
   const load = async () => {
     setCarrier(await api.get(`/api/carriers/${id}`));
@@ -47,6 +48,7 @@ export default function CarrierDetail() {
 
       {editing && <EditCarrier carrier={carrier} onDone={() => { setEditing(false); load(); }} />}
       {logging && <LogTrap carrierId={carrier.id} members={members} onDone={() => { setLogging(false); load(); }} />}
+      {editTrap && <LogTrap carrierId={carrier.id} members={members} existing={editTrap} onDone={() => { setEditTrap(null); load(); }} />}
 
       <section>
         <h2>Recent traps <span className="muted small">({carrier.recent_traps.length})</span></h2>
@@ -55,7 +57,7 @@ export default function CarrierDetail() {
             <table>
               <thead><tr>
                 <th>Time</th><th>Pilot</th><th>Grade</th><th>Wire</th>
-                <th>A/C</th><th>AOA</th><th>L/U</th><th>G/S</th><th>Comments</th>
+                <th>A/C</th><th>AOA</th><th>L/U</th><th>G/S</th><th>Comments</th>{me.isAdmin && <th></th>}
               </tr></thead>
               <tbody>
                 {carrier.recent_traps.map((t) => (
@@ -73,6 +75,7 @@ export default function CarrierDetail() {
                     <td className="small">{t.lineup || '—'}</td>
                     <td className="small">{t.glideslope || '—'}</td>
                     <td className="small muted">{t.comments ? t.comments.slice(0, 80) : ''}</td>
+                    {me.isAdmin && <td><button className="small" onClick={() => { setEditTrap(t); setLogging(false); setEditing(false); }}>edit</button></td>}
                   </tr>
                 ))}
               </tbody>
@@ -110,13 +113,17 @@ function EditCarrier({ carrier, onDone }) {
   );
 }
 
-function LogTrap({ carrierId, members, onDone }) {
-  const localIso = () => {
-    const d = new Date();
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-    return d.toISOString().slice(0, 16);
+function LogTrap({ carrierId, members, onDone, existing }) {
+  const localIso = (ms) => {
+    const d = ms ? new Date(ms) : new Date();
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   };
-  const [f, setF] = useState({
+  const [f, setF] = useState(existing ? {
+    member_id: existing.member_id || '', pilot_name: existing.pilot_name || '', airframe: existing.airframe || '',
+    grade: existing.grade || 'OK', wire: existing.wire ?? '', aoa: existing.aoa || 'OK', lineup: existing.lineup || 'OK',
+    glideslope: existing.glideslope || 'OK', ball_call: existing.ball_call || '', comments: existing.comments || '',
+    time_at: localIso(existing.time_at),
+  } : {
     member_id: '', pilot_name: '', airframe: '', grade: 'OK', wire: 3,
     aoa: 'OK', lineup: 'OK', glideslope: 'OK', ball_call: '', comments: '',
     time_at: localIso(),
@@ -133,16 +140,17 @@ function LogTrap({ carrierId, members, onDone }) {
         time_at: f.time_at ? new Date(f.time_at).getTime() : Date.now(),
         wire: f.wire === '' ? null : Number(f.wire),
       };
-      await api.post(`/api/carriers/${carrierId}/traps`, payload);
+      if (existing) await api.put(`/api/traps/${existing.id}`, payload);
+      else await api.post(`/api/carriers/${carrierId}/traps`, payload);
       onDone();
     } catch (err) {
-      alert(`Log failed: ${err.message}`);
+      alert(`Save failed: ${err.message}`);
     } finally { setBusy(false); }
   };
   const noWire = ['B', 'WO', 'WOFD', 'TWO'].includes(f.grade);
   return (
     <form className="card" onSubmit={submit} style={{ marginTop: 14 }}>
-      <h3>Log trap</h3>
+      <h3>{existing ? 'Edit trap' : 'Log trap'}</h3>
       <div className="form-grid">
         <div className="field"><label>Pilot</label>
           <select value={f.member_id} onChange={set('member_id')}>

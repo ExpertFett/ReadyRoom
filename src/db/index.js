@@ -601,6 +601,25 @@ export function createQualTrack(qualId, { code, label, sort_order }) {
   }
 }
 
+const selectTrackStmt = db.prepare('SELECT * FROM qual_tracks WHERE id = ?');
+const updateTrackStmt = db.prepare('UPDATE qual_tracks SET code = ?, label = ?, sort_order = ? WHERE id = ?');
+export function updateQualTrack(id, { code, label, sort_order }) {
+  const cur = selectTrackStmt.get(id);
+  if (!cur) return null;
+  try {
+    updateTrackStmt.run(
+      code != null ? String(code).trim().slice(0, 20) : cur.code,
+      label != null ? String(label).trim().slice(0, 60) : cur.label,
+      sort_order != null ? Number(sort_order) || 0 : cur.sort_order,
+      id,
+    );
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) throw new Error('duplicate_code');
+    throw err;
+  }
+  return selectTrackStmt.get(id);
+}
+
 export function deleteQualTrack(id) {
   return deleteTrackStmt.run(id).changes;
 }

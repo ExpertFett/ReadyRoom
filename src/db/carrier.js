@@ -169,6 +169,31 @@ export function getTrap(id) {
   return selectTrap.get(id) || null;
 }
 
+const updateTrapStmt = db.prepare(`
+  UPDATE traps SET member_id = ?, pilot_name = ?, airframe = ?, time_at = ?,
+    grade = ?, wire = ?, aoa = ?, lineup = ?, glideslope = ?, ball_call = ?, comments = ?, weather = ?
+  WHERE id = ?
+`);
+// Edit a logged trap (e.g. correct the grade/wire after the fact). Expects a
+// complete trap payload, same shape as recordTrap.
+export function updateTrap(id, d) {
+  const cur = getTrap(id);
+  if (!cur) return null;
+  if (d.grade != null && !TRAP_GRADES.includes(d.grade)) throw new Error('bad_grade');
+  updateTrapStmt.run(
+    d.member_id ? Number(d.member_id) : null,
+    str(d.pilot_name, 120),
+    str(d.airframe, 40),
+    Number(d.time_at) || cur.time_at,
+    TRAP_GRADES.includes(d.grade) ? d.grade : cur.grade,
+    d.wire == null || d.wire === '' ? null : Math.max(0, Math.min(4, Number(d.wire))),
+    str(d.aoa, 20), str(d.lineup, 20), str(d.glideslope, 20),
+    str(d.ball_call, 200), str(d.comments, 2000), str(d.weather, 200),
+    id,
+  );
+  return getTrap(id);
+}
+
 export function deleteTrap(id) {
   return deleteTrapStmt.run(id).changes;
 }
