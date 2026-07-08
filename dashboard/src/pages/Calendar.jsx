@@ -40,6 +40,12 @@ export default function Calendar() {
   const [events, setEvents] = useState([]);
   const [upcoming, setUpcoming] = useState([]);
   const [creating, setCreating] = useState(false);
+  const [squads, setSquads] = useState([]);
+
+  // Squadron calendar colors — tint each event chip by its host squadron.
+  useEffect(() => {
+    if (activeWing) api.get(`/api/squadrons?wing_id=${activeWing.id}`).then(setSquads).catch(() => {});
+  }, [activeWing]);
 
   // Month grid: the visible 6-week window.
   useEffect(() => {
@@ -71,6 +77,8 @@ export default function Calendar() {
     byDay.get(key).push(e);
   }
   const today = isoDay(new Date());
+  const sqColor = {};
+  for (const s of squads) if (s.calendar_color) sqColor[s.id] = s.calendar_color;
 
   const fmtMonth = cursor.toLocaleString([], { month: 'long', year: 'numeric' });
   const move = (delta) => () => {
@@ -112,9 +120,12 @@ export default function Calendar() {
                 <div key={i} className={`cal-cell ${inMonth ? '' : 'out'} ${key === today ? 'today' : ''}`}>
                   <div className="cal-date">{d.getDate()}</div>
                   {list.map((e) => (
-                    <Link key={e.id} to={`/events/${e.id}`} className={`cal-evt ${e.kind}`} title={`${evtTime(e.start_at)} · ${e.title}`}>
+                    <Link key={e.id} to={`/events/${e.id}`} className={`cal-evt ${e.kind}`} title={`${evtTime(e.start_at)} · ${e.title}`}
+                      style={sqColor[e.squadron_id] ? { borderLeft: `3px solid ${sqColor[e.squadron_id]}`, paddingLeft: 4 } : undefined}>
                       {e.kind === 'extra_credit' ? '★ ' : ''}
-                      {e.discord_message_id && <span title="Posted to Discord" style={{ marginRight: 2 }}>📌</span>}
+                      {e.discord_message_id
+                        ? <span title="Posted to Discord" style={{ marginRight: 2 }}>📌</span>
+                        : (e.discord_post_at && e.discord_post_at > Date.now() && <span title="Scheduled to post to Discord" style={{ marginRight: 2 }}>⏳</span>)}
                       <span className="cal-evt-time">{evtTime(e.start_at)}</span> {e.title}
                     </Link>
                   ))}
@@ -131,6 +142,8 @@ export default function Calendar() {
               <span className="cal-evt extra_credit" style={{ display: 'inline-block', width: 14, height: 10, padding: 0, margin: 0 }} /> ★ Extra credit
             </span>
             <span>📌 Posted to Discord</span>
+            <span>⏳ Scheduled to post</span>
+            <span className="muted">Left bar = squadron color</span>
           </div>
         </>
       )}

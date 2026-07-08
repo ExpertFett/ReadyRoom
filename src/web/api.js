@@ -380,6 +380,8 @@ export function apiRouter() {
     const created = createSquadron(wingId, {
       name: str(b.name, 120), tag: str(b.tag, 32), aircraft: str(b.aircraft, 120),
       description: str(b.description, 2000), sort_order: b.sort_order,
+      service_branch: str(b.service_branch, 40), calendar_color: b.calendar_color,
+      insignia_url: str(b.insignia_url, 500), archived: b.archived,
     });
     if (b.kind === 'detachment') setSquadronKind(created.id, 'detachment');
     audit(req, wingId, 'created', 'squadron', created.id, `Created squadron ${created.tag || created.name}`);
@@ -414,6 +416,9 @@ export function apiRouter() {
     const updated = updateSquadron(sqn.id, {
       name: str(b.name, 120) || sqn.name, tag: str(b.tag, 32), aircraft: str(b.aircraft, 120),
       description: str(b.description, 2000), sort_order: b.sort_order ?? sqn.sort_order,
+      // undefined -> updateSquadron preserves the existing value (partial edits safe).
+      service_branch: b.service_branch, calendar_color: b.calendar_color,
+      insignia_url: b.insignia_url, archived: b.archived,
     });
     audit(req, sqn.wing_id, 'updated', 'squadron', sqn.id, `Updated squadron ${updated.tag || updated.name}`);
     res.json(updated);
@@ -1198,7 +1203,7 @@ export function apiRouter() {
       title: str(b.title, 200), description: str(b.description, 8000),
       kind: b.kind, start_at: start, end_at: ms(b.end_at),
       multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
-      roles: b.roles, taskings: b.taskings,
+      roles: b.roles, taskings: b.taskings, status: b.status,
     }, getActor(req).user?.id || null);
 
     // Discord posting: discord_post_at controls WHEN it posts.
@@ -1276,6 +1281,7 @@ export function apiRouter() {
       kind: b.kind ?? e.kind, start_at: ms(b.start_at) ?? e.start_at, end_at: ms(b.end_at),
       multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
       roles: b.roles ?? e.roles, taskings: b.taskings ?? e.taskings,
+      status: b.status ?? e.status,   // preserve status when the edit form doesn't send it
     });
     // Reschedule Discord posting if the field was sent. If it becomes due and
     // the event hasn't posted yet, publish it now (else the scheduler will).

@@ -117,6 +117,10 @@ ensureColumn('members', 'modex', 'TEXT');                              // hull/s
 ensureColumn('members', 'livery', 'TEXT');                            // DCS livery/skin id, painted on the jet in OPT
 ensureColumn('members', 'subdivision', "TEXT NOT NULL DEFAULT 'main'"); // main|ready_reserve|candidate|frs
 ensureColumn('squadrons', 'kind', "TEXT NOT NULL DEFAULT 'squadron'");  // squadron|detachment
+ensureColumn('squadrons', 'service_branch', 'TEXT');   // Navy | Marine Corps | Air Force | …
+ensureColumn('squadrons', 'calendar_color', 'TEXT');   // hex, tints this squadron's events on the calendar
+ensureColumn('squadrons', 'insignia_url', 'TEXT');     // squadron patch/logo image
+ensureColumn('squadrons', 'archived', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('quals', 'is_tier', 'INTEGER NOT NULL DEFAULT 0');        // counts toward readiness tier
 ensureColumn('quals', 'tier_order', 'INTEGER');                        // progression order (lower = earlier)
 ensureColumn('quals', 'tier_label', 'TEXT');                           // tier granted when achieved (e.g. CMQ -> "FMQ")
@@ -328,15 +332,17 @@ export function getLastPublishedEvent(wingId) {
 // Squadrons
 // ---------------------------------------------------------------------------
 const insertSquadron = db.prepare(`
-  INSERT INTO squadrons (wing_id, name, tag, aircraft, description, sort_order, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO squadrons (wing_id, name, tag, aircraft, description, sort_order, created_at,
+    service_branch, calendar_color, insignia_url, archived)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectSquadronsByWing = db.prepare(
   'SELECT * FROM squadrons WHERE wing_id = ? ORDER BY sort_order ASC, name ASC'
 );
 const selectSquadron = db.prepare('SELECT * FROM squadrons WHERE id = ?');
 const updateSquadronStmt = db.prepare(`
-  UPDATE squadrons SET name = ?, tag = ?, aircraft = ?, description = ?, sort_order = ?
+  UPDATE squadrons SET name = ?, tag = ?, aircraft = ?, description = ?, sort_order = ?,
+    service_branch = ?, calendar_color = ?, insignia_url = ?, archived = ?
   WHERE id = ?
 `);
 const deleteSquadronStmt = db.prepare('DELETE FROM squadrons WHERE id = ?');
@@ -344,7 +350,10 @@ const countMembersInSquadron = db.prepare(
   "SELECT COUNT(*) AS n FROM members WHERE squadron_id = ? AND status != 'retired'"
 );
 
-export function createSquadron(wingId, { name, tag, aircraft, description, sort_order }) {
+// Only accept a real hex color (#rgb / #rrggbb / #rrggbbaa); anything else -> null.
+const normHex = (v) => (typeof v === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(v.trim()) ? v.trim() : null);
+
+export function createSquadron(wingId, { name, tag, aircraft, description, sort_order, service_branch, calendar_color, insignia_url, archived }) {
   const info = insertSquadron.run(
     wingId,
     name,
@@ -352,7 +361,11 @@ export function createSquadron(wingId, { name, tag, aircraft, description, sort_
     aircraft ?? null,
     description ?? null,
     Number(sort_order) || 0,
-    Date.now()
+    Date.now(),
+    service_branch ? String(service_branch).slice(0, 40) : null,
+    normHex(calendar_color),
+    insignia_url ? String(insignia_url).slice(0, 500) : null,
+    archived ? 1 : 0,
   );
   return getSquadron(Number(info.lastInsertRowid));
 }
@@ -365,13 +378,20 @@ export function getSquadrons(wingId) {
 export function getSquadron(id) {
   return selectSquadron.get(id) || null;
 }
-export function updateSquadron(id, { name, tag, aircraft, description, sort_order }) {
+export function updateSquadron(id, { name, tag, aircraft, description, sort_order, service_branch, calendar_color, insignia_url, archived }) {
+  const cur = getSquadron(id);
+  if (!cur) return null;
   updateSquadronStmt.run(
     name,
     tag ?? null,
     aircraft ?? null,
     description ?? null,
     Number(sort_order) || 0,
+    // Preserve existing values when a field isn't supplied (partial edits).
+    service_branch === undefined ? cur.service_branch : (service_branch ? String(service_branch).slice(0, 40) : null),
+    calendar_color === undefined ? cur.calendar_color : normHex(calendar_color),
+    insignia_url === undefined ? cur.insignia_url : (insignia_url ? String(insignia_url).slice(0, 500) : null),
+    archived === undefined ? (cur.archived || 0) : (archived ? 1 : 0),
     id
   );
   return getSquadron(id);

@@ -92,22 +92,25 @@ ensureColumn('events', 'mission_id', 'INTEGER');
 // Post-mission AAR summary pushed back from the planner (OPT ⇄ RR loop, hop 7).
 // Free text shown on the event page once a mission has flown.
 ensureColumn('events', 'result_summary', 'TEXT');
+// Lifecycle status (mirrors missions). NULL on legacy rows = treated as 'scheduled'.
+ensureColumn('events', 'status', 'TEXT');
 
 const EVENT_KINDS = ['squadron', 'extra_credit'];
+const EVENT_STATUS = ['scheduled', 'active', 'completed', 'cancelled'];
 const ATTEND_STATUS = ['present', 'absent', 'excused', 'extra_credit', 'ua'];
 const LOA_STATUS = ['requested', 'approved', 'denied'];
 
 // --- events CRUD --------------------------------------------------------
 const insertEvent = db.prepare(`
   INSERT INTO events (wing_id, squadron_id, title, description, kind, start_at, end_at,
-    multi_squadron, track_attendance, roles, taskings, mission_id, created_by, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    multi_squadron, track_attendance, roles, taskings, mission_id, status, created_by, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectEvent = db.prepare('SELECT * FROM events WHERE id = ?');
 const updateEventStmt = db.prepare(`
   UPDATE events SET squadron_id = ?, title = ?, description = ?, kind = ?,
     start_at = ?, end_at = ?, multi_squadron = ?, track_attendance = ?,
-    roles = ?, taskings = ?, updated_at = ?
+    roles = ?, taskings = ?, status = ?, updated_at = ?
   WHERE id = ?
 `);
 const deleteEventStmt = db.prepare('DELETE FROM events WHERE id = ?');
@@ -152,6 +155,7 @@ const normEvent = (d) => ({
   roles: normRoles(d.roles),
   taskings: normTaskings(d.taskings),
   mission_id: d.mission_id ? Number(d.mission_id) : null,
+  status: EVENT_STATUS.includes(d.status) ? d.status : 'scheduled',
 });
 
 export function createEvent(wingId, d, createdBy = null) {
@@ -160,7 +164,7 @@ export function createEvent(wingId, d, createdBy = null) {
   const info = insertEvent.run(
     wingId, e.squadron_id, e.title, e.description, e.kind, e.start_at, e.end_at,
     e.multi_squadron, e.track_attendance, JSON.stringify(e.roles), JSON.stringify(e.taskings),
-    e.mission_id, createdBy, now, now
+    e.mission_id, e.status, createdBy, now, now
   );
   return parseEvent(selectEvent.get(Number(info.lastInsertRowid)));
 }
@@ -172,7 +176,7 @@ export function updateEvent(id, d) {
   updateEventStmt.run(
     e.squadron_id, e.title, e.description, e.kind, e.start_at, e.end_at,
     e.multi_squadron, e.track_attendance, JSON.stringify(e.roles), JSON.stringify(e.taskings),
-    Date.now(), id
+    e.status, Date.now(), id
   );
   return parseEvent(selectEvent.get(id));
 }

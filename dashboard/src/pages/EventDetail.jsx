@@ -156,7 +156,10 @@ export default function EventDetail() {
       <div className="crumbs"><Link to="/events">Events</Link> / {event.title}</div>
       <div className="between">
         <div>
-          <h1>{event.title} {event.kind === 'extra_credit' && <span className="badge commander" style={{ marginLeft: 8 }}>★ Extra Credit</span>}</h1>
+          <h1>{event.title} {event.kind === 'extra_credit' && <span className="badge commander" style={{ marginLeft: 8 }}>★ Extra Credit</span>}
+            {event.status && event.status !== 'scheduled' && (
+              <span className={`badge ${event.status === 'active' ? 'active' : event.status === 'completed' ? 'qualified' : 'retired'}`} style={{ marginLeft: 8 }}>{event.status}</span>
+            )}</h1>
           <p className="muted">{fmt(event.start_at)}{event.track_attendance ? ' · attendance tracked' : ''}</p>
         </div>
         {me.isAdmin && (
@@ -243,6 +246,7 @@ function EditEvent({ event, onDone }) {
   const [f, setF] = useState({
     title: event.title || '',
     kind: event.kind || 'squadron',
+    status: event.status || 'scheduled',
     start_at: toLocalInput(event.start_at),
     squadron_id: event.squadron_id || '',
     description: event.description || '',
@@ -267,7 +271,7 @@ function EditEvent({ event, onDone }) {
     setBusy(true);
     try {
       await api.put(`/api/events/${event.id}`, {
-        title: f.title, kind: f.kind,
+        title: f.title, kind: f.kind, status: f.status,
         start_at: f.start_at ? new Date(f.start_at).getTime() : event.start_at,
         squadron_id: f.squadron_id ? Number(f.squadron_id) : null,
         description: f.description, track_attendance: f.track_attendance,
@@ -289,6 +293,13 @@ function EditEvent({ event, onDone }) {
           <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
             <option value="squadron">Squadron event</option>
             <option value="extra_credit">Extra credit</option>
+          </select></div>
+        <div className="field"><label>Status</label>
+          <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+            <option value="scheduled">Scheduled</option>
+            <option value="active">Active</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
           </select></div>
         <div className="field"><label>Host squadron</label>
           <select value={f.squadron_id} onChange={(e) => setF({ ...f, squadron_id: e.target.value })}>

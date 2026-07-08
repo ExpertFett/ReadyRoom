@@ -74,6 +74,8 @@ function EditSquadron({ sqn, onDone }) {
   const [f, setF] = useState({
     name: sqn.name || '', tag: sqn.tag || '', aircraft: sqn.aircraft || '',
     description: sqn.description || '', kind: sqn.kind || 'squadron',
+    service_branch: sqn.service_branch || '', calendar_color: sqn.calendar_color || '#4c8bf5',
+    insignia_url: sqn.insignia_url || '',
   });
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -91,7 +93,20 @@ function EditSquadron({ sqn, onDone }) {
         <div className="field"><label>Name *</label><input value={f.name} onChange={set('name')} /></div>
         <div className="field"><label>Tag</label><input value={f.tag} onChange={set('tag')} placeholder="VF-1" /></div>
       </div>
-      <div className="field"><label>Primary aircraft</label><input value={f.aircraft} onChange={set('aircraft')} placeholder="F-14B Tomcat" /></div>
+      <div className="form-grid">
+        <div className="field"><label>Primary aircraft</label><input value={f.aircraft} onChange={set('aircraft')} placeholder="F-14B Tomcat" /></div>
+        <div className="field"><label>Service branch</label>
+          <select value={f.service_branch} onChange={set('service_branch')}>
+            <option value="">—</option>
+            <option>Navy</option><option>Marine Corps</option><option>Air Force</option><option>Army</option>
+          </select></div>
+        <div className="field"><label>Calendar color</label>
+          <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+            <input type="color" value={f.calendar_color || '#4c8bf5'} onChange={set('calendar_color')} style={{ width: 44, padding: 2 }} />
+            <input value={f.calendar_color} onChange={set('calendar_color')} placeholder="#4c8bf5" style={{ flex: 1 }} />
+          </div></div>
+      </div>
+      <div className="field"><label>Insignia URL</label><input value={f.insignia_url} onChange={set('insignia_url')} placeholder="/logos/vf-1.png or https://…" /></div>
       <div className="field"><label>Description</label><input value={f.description} onChange={set('description')} /></div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
         <input type="checkbox" style={{ width: 'auto' }} checked={f.kind === 'detachment'}
