@@ -11,6 +11,7 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [stats, setStats] = useState(null);
   const [events, setEvents] = useState([]);
+  const [myEvents, setMyEvents] = useState([]);
 
   useEffect(() => {
     if (!activeWing) return;
@@ -20,7 +21,10 @@ export default function Dashboard() {
     api.get(`/api/wings/${activeWing.id}/events?from=${now}&to=${now + 30 * 86400000}`)
       .then((list) => setEvents((list || []).filter((e) => e.start_at >= now - 3600000).slice(0, 6)))
       .catch(() => setEvents([]));
-  }, [activeWing]);
+    if (me.member) {
+      api.get(`/api/members/${me.member.id}/event-signups`).then((l) => setMyEvents(l || [])).catch(() => setMyEvents([]));
+    }
+  }, [activeWing, me.member]);
 
   if (!activeWing) {
     // Any signed-in user with no wing can create one and becomes its admin.
@@ -85,7 +89,7 @@ export default function Dashboard() {
         <section className="card" style={{ flex: '1 1 360px' }}>
           <h3>My signups</h3>
           {!me.member && <p className="muted small">Your Discord isn't linked to a roster member yet, so you can't sign up. An admin can link you on your member page.</p>}
-          {me.member && !data.mySignups.length && <div className="empty">You're not signed up for anything.</div>}
+          {me.member && !data.mySignups.length && !myEvents.length && <div className="empty">You're not signed up for anything.</div>}
           {data.mySignups.map((s) => (
             <Link key={s.signup_id} to={`/missions/${s.mission_id}`} className="list-row">
               <div>
@@ -93,6 +97,15 @@ export default function Dashboard() {
                 <div className="small muted">{s.callsign || 'flight'} · {s.role || s.flight_aircraft || ''} · {fmt(s.start_at)}</div>
               </div>
               <span className={`badge ${s.signup_status === 'confirmed' ? 'qualified' : s.signup_status === 'tentative' ? 'training' : 'reserve'}`}>{s.signup_status}</span>
+            </Link>
+          ))}
+          {myEvents.map((e) => (
+            <Link key={`ev-${e.event_id}-${e.role_label}`} to={`/events/${e.event_id}`} className="list-row">
+              <div>
+                <div className="callsign">{e.kind === 'extra_credit' ? '★ ' : ''}{e.title}</div>
+                <div className="small muted">{e.role_label} · {fmt(e.start_at)}</div>
+              </div>
+              <span className="badge active">flight</span>
             </Link>
           ))}
         </section>

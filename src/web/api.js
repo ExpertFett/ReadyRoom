@@ -42,7 +42,7 @@ import {
   createLOA, getLOA, setLOAStatus, updateLOA, deleteLOA, getUpcomingLOAs, getMemberLOAs,
   getAttendanceMetrics, getAttendanceTimeseries, getPilotPerformance, setEventDiscord,
   setEventSignup, removeEventSignup, removeAllEventSignupsForUser, getEventSignups, countEventRoleSignups,
-  claimEventSlot, getEventByMission,
+  claimEventSlot, getEventByMission, getMemberEventSignups,
 } from '../db/events.js';
 import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
 import {
@@ -1785,6 +1785,11 @@ export function apiRouter() {
       stats: getMemberBoardingStats(member.id),
       traps: getTrapsByMember(member.id, 50),
     });
+  });
+  // Upcoming event flight slots this member is signed up for (My sign-ups panel).
+  router.get('/members/:id/event-signups', (req, res) => {
+    if (!getMember(Number(req.params.id))) return res.status(404).json({ error: 'not_found' });
+    res.json(getMemberEventSignups(Number(req.params.id)));
   });
   router.get('/events/:id/traps', (req, res) => {
     res.json(getTrapsByEvent(Number(req.params.id)));

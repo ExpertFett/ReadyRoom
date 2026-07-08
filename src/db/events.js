@@ -213,6 +213,19 @@ export function countEventRoleSignups(eventId, roleLabel) {
   return countRoleSignupsStmt.get(eventId, String(roleLabel)).n;
 }
 
+// Upcoming events a member is signed up for (which flight slot) — for the
+// "My sign-ups" panel on the dashboard.
+const selectMemberEventSignups = db.prepare(`
+  SELECT s.role_label, e.id AS event_id, e.title, e.start_at, e.kind
+  FROM event_signups s JOIN events e ON e.id = s.event_id
+  WHERE s.member_id = ? AND e.start_at >= ?
+  ORDER BY e.start_at ASC
+`);
+export function getMemberEventSignups(memberId, fromMs = Date.now() - 3600000) {
+  if (!memberId) return [];
+  return selectMemberEventSignups.all(memberId, fromMs);
+}
+
 // --- OPT ⇄ RR loop: mission-linked event lookups ------------------------
 // The single event published from a mission (most recent wins if re-published).
 const selectEventByMission = db.prepare('SELECT * FROM events WHERE mission_id = ? ORDER BY created_at DESC LIMIT 1');
