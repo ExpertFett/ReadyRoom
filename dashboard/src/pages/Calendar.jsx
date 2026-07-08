@@ -172,6 +172,8 @@ function CreateEvent({ wing, onDone }) {
   const [squadrons, setSquadrons] = useState([]);
   const [f, setF] = useState({ title: '', kind: 'squadron', start_at: '', squadron_id: '', description: '', track_attendance: true });
   const [flights, setFlights] = useState([]); // [{ name, tasking, seats, qual }]
+  const [postMode, setPostMode] = useState('now'); // now | schedule | none
+  const [postAt, setPostAt] = useState('');
   useEffect(() => { api.get(`/api/squadrons?wing_id=${wing.id}`).then(setSquadrons); }, [wing.id]);
   const submit = async (e) => {
     e.preventDefault();
@@ -185,6 +187,7 @@ function CreateEvent({ wing, onDone }) {
       start_at: f.start_at ? new Date(f.start_at).getTime() : null,
       squadron_id: f.squadron_id ? Number(f.squadron_id) : null,
       ...flightsToRoles(flights),
+      discord_post_at: computePostAt(postMode, postAt),
     });
     onDone();
     navigate(`/events/${ev.id}`);
@@ -222,8 +225,39 @@ function CreateEvent({ wing, onDone }) {
         <input type="checkbox" style={{ width: 'auto' }} checked={f.track_attendance} onChange={(e) => setF({ ...f, track_attendance: e.target.checked })} />
         Track attendance
       </label>
+      <DiscordPostFields mode={postMode} setMode={setPostMode} at={postAt} setAt={setPostAt} />
       <button className="primary" style={{ marginTop: 10 }}>Create event →</button>
     </form>
+  );
+}
+
+// "Post to Discord" picker: Now / At a scheduled time / Don't post. Converts to
+// discord_post_at ms on the CLIENT (user's timezone) — the server stores the
+// number. computePostAt() turns the picker state into that value.
+export function computePostAt(mode, atLocal) {
+  if (mode === 'now') return Date.now();
+  if (mode === 'schedule') return atLocal ? new Date(atLocal).getTime() : null;
+  return null; // 'none'
+}
+export function DiscordPostFields({ mode, setMode, at, setAt }) {
+  return (
+    <div className="field">
+      <label>Post to Discord</label>
+      <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <select value={mode} onChange={(e) => setMode(e.target.value)} style={{ width: 'auto' }}>
+          <option value="now">Now (when I save)</option>
+          <option value="schedule">At a scheduled time…</option>
+          <option value="none">Don't post to Discord</option>
+        </select>
+        {mode === 'schedule' && (
+          <input type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} />
+        )}
+      </div>
+      {mode === 'schedule' && at && (
+        <span className="small muted">Auto-posts {new Date(at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · your local time</span>
+      )}
+      {mode === 'none' && <span className="small muted">You can post it later from the event page (Repost to Discord).</span>}
+    </div>
   );
 }
 

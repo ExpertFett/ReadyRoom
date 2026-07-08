@@ -41,10 +41,12 @@ import {
   markAttendance, clearAttendance, getEventAttendance, getEventRoster,
   createLOA, getLOA, setLOAStatus, updateLOA, deleteLOA, getUpcomingLOAs, getMemberLOAs,
   getAttendanceMetrics, getAttendanceTimeseries, getPilotPerformance, setEventDiscord,
+  setEventPostAt, getEventsDueForDiscord,
   setEventSignup, removeEventSignup, removeAllEventSignupsForUser, getEventSignups, countEventRoleSignups,
   claimEventSlot, getEventByMission, getMemberEventSignups,
 } from '../db/events.js';
 import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
+import { publishEventNow } from '../services/eventPublish.js';
 import {
   createCarrier, getCarriers, getCarrier, updateCarrier, deleteCarrier,
   recordTrap, deleteTrap, getTrap, updateTrap,
@@ -1190,21 +1192,18 @@ export function apiRouter() {
       roles: b.roles, taskings: b.taskings,
     }, getActor(req).user?.id || null);
 
-    // Fire-and-forget: publish to Discord via Ops Bot if the wing is wired up.
-    // Sends the flight/slot roles so the bot can render its full sign-up panel.
-    const wing = getWing(wingId);
-    if (wing.ops_bot_url && wing.ops_bot_token && !wing.discord_paused) {
-      opsbotPublishEvent(wing, {
-        readyroom_event_id: event.id,
-        signup_callback_url: signupCallback(wing),
-        title: event.title,
-        description: event.description,
-        kind: event.kind,
-        start_at: event.start_at,
-        roles: event.roles,
-        taskings: event.taskings,
-        url: `${getBaseUrl()}/events/${event.id}`,
-      }).then((r) => { if (r) setEventDiscord(event.id, r.channel_id, r.message_id); });
+    // Discord posting: discord_post_at controls WHEN it posts.
+    //   absent (legacy client) -> post now (old behavior)
+    //   null                   -> don't auto-post (manual Repost only)
+    //   timestamp              -> post at/after that time (scheduler); if
+    //                             already due, post now.
+    const postAt = Object.prototype.hasOwnProperty.call(b, 'discord_post_at')
+      ? ms(b.discord_post_at)
+      : Date.now();
+    setEventPostAt(event.id, postAt);
+    event.discord_post_at = postAt;
+    if (Number.isFinite(postAt) && postAt <= Date.now() + 60_000) {
+      publishEventNow(event.id).catch(() => {}); // fire-and-forget
     }
 
     audit(req, wingId, 'created', 'event', event.id, `Event: ${event.title}`);
@@ -1269,6 +1268,16 @@ export function apiRouter() {
       multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
       roles: b.roles ?? e.roles, taskings: b.taskings ?? e.taskings,
     });
+    // Reschedule Discord posting if the field was sent. If it becomes due and
+    // the event hasn't posted yet, publish it now (else the scheduler will).
+    if (Object.prototype.hasOwnProperty.call(b, 'discord_post_at')) {
+      const postAt = ms(b.discord_post_at);
+      setEventPostAt(updated.id, postAt);
+      updated.discord_post_at = postAt;
+      if (Number.isFinite(postAt) && postAt <= Date.now() + 60_000 && !updated.discord_message_id) {
+        publishEventNow(updated.id).catch(() => {});
+      }
+    }
     // Fire-and-forget: edit the Discord panel if we have one wired.
     const wing = getWing(updated.wing_id);
     if (wing?.ops_bot_url && wing?.ops_bot_token && !wing?.discord_paused && updated.discord_message_id) {

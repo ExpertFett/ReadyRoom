@@ -11,3 +11,6 @@ data/
 npm-debug.log*
 smoke/
 .claude/
+
+# throwaway dev/verify scripts
+scripts/_*.mjs

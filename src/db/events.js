@@ -80,6 +80,10 @@ db.exec(`
 //   taskings = { "<flight/group name>": "STRIKE" | "SEAD" | ... }
 ensureColumn('events', 'roles', 'TEXT');
 ensureColumn('events', 'taskings', 'TEXT');
+// When to auto-post the event to Discord: null = don't auto-post (manual only);
+// a timestamp = post at/after that moment (a background scheduler handles it).
+// Once posted, discord_message_id is set, which keeps it from posting twice.
+ensureColumn('events', 'discord_post_at', 'INTEGER');
 // Optional link back to the mission this event was published from (OPT ⇄ RR
 // loop). Plain INTEGER (no FK) so the ALTER is portable; the share endpoint
 // resolves the mission itself and tolerates a dangling id. null = standalone
@@ -322,6 +326,21 @@ const setEventDiscordStmt = db.prepare(
 );
 export function setEventDiscord(id, channelId, messageId) {
   setEventDiscordStmt.run(channelId || null, messageId || null, id);
+}
+
+const setEventPostAtStmt = db.prepare('UPDATE events SET discord_post_at = ? WHERE id = ?');
+// Schedule (or clear) when this event should auto-post to Discord. null = never.
+export function setEventPostAt(id, ms) {
+  setEventPostAtStmt.run(Number.isFinite(ms) ? ms : null, id);
+}
+// Events whose scheduled post time has arrived and that haven't been posted yet.
+const selectDueEvents = db.prepare(`
+  SELECT * FROM events
+  WHERE discord_post_at IS NOT NULL AND discord_post_at <= ? AND discord_message_id IS NULL
+  ORDER BY discord_post_at ASC LIMIT 50
+`);
+export function getEventsDueForDiscord(now) {
+  return selectDueEvents.all(now).map(parseEvent);
 }
 
 // --- list events in a range (for calendar) ------------------------------

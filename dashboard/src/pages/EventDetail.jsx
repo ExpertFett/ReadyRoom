@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
-import { FlightsEditor, flightsToRoles, rolesToFlights } from './Calendar.jsx';
+import { FlightsEditor, flightsToRoles, rolesToFlights, DiscordPostFields, computePostAt } from './Calendar.jsx';
 
 // ms -> "YYYY-MM-DDTHH:mm" in local time, for datetime-local inputs (DST-correct
 // via the target date's own offset).
@@ -171,7 +171,11 @@ export default function EventDetail() {
       </div>
       {me.isAdmin && (
         <p className="muted small" style={{ marginTop: -6 }}>
-          {event.discord_message_id ? '📌 Posted to Discord' : 'Not posted to Discord yet'}
+          {event.discord_message_id
+            ? '📌 Posted to Discord'
+            : (event.discord_post_at && event.discord_post_at > Date.now())
+              ? `🕒 Scheduled to post ${fmt(event.discord_post_at)}`
+              : 'Not posted to Discord yet'}
           {repostMsg && <span> · {repostMsg}</span>}
         </p>
       )}
@@ -247,6 +251,14 @@ function EditEvent({ event, onDone }) {
   const [flights, setFlights] = useState(rolesToFlights(event.roles, event.taskings));
   const [squadrons, setSquadrons] = useState([]);
   const [busy, setBusy] = useState(false);
+  // Discord scheduling — only editable while the event hasn't posted yet. Once
+  // it's live on Discord, saving just edits the existing message (below).
+  const posted = !!event.discord_message_id;
+  const [postMode, setPostMode] = useState(
+    posted ? 'none' : event.discord_post_at == null ? 'none'
+      : event.discord_post_at > Date.now() ? 'schedule' : 'now');
+  const [postAt, setPostAt] = useState(
+    (!posted && event.discord_post_at) ? toLocalInput(event.discord_post_at) : '');
   useEffect(() => { api.get(`/api/squadrons?wing_id=${event.wing_id}`).then(setSquadrons).catch(() => {}); }, [event.wing_id]);
 
   const save = async (e) => {
@@ -260,6 +272,7 @@ function EditEvent({ event, onDone }) {
         squadron_id: f.squadron_id ? Number(f.squadron_id) : null,
         description: f.description, track_attendance: f.track_attendance,
         ...flightsToRoles(flights),
+        ...(posted ? {} : { discord_post_at: computePostAt(postMode, postAt) }),
       });
       onDone();
     } finally { setBusy(false); }
@@ -289,6 +302,7 @@ function EditEvent({ event, onDone }) {
         <input type="checkbox" style={{ width: 'auto' }} checked={f.track_attendance} onChange={(e) => setF({ ...f, track_attendance: e.target.checked })} />
         Track attendance
       </label>
+      {!posted && <DiscordPostFields mode={postMode} setMode={setPostMode} at={postAt} setAt={setPostAt} />}
       <div className="row" style={{ marginTop: 10 }}>
         <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
         <span className="muted small" style={{ alignSelf: 'center' }}>Saving also updates the Discord post if it's already published.</span>
