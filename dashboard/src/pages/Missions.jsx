@@ -9,6 +9,7 @@ const fmt = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: 'short', 
 
 export default function Missions() {
   const { me, activeWing } = useMe();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const [missions, setMissions] = useState(null);
   const [filters, setFilters] = useState({ status: '', type: '', search: '' });
@@ -23,6 +24,13 @@ export default function Missions() {
     setMissions(await api.get(`/api/missions?${q}`));
   };
   useEffect(() => { load(); }, [activeWing, filters]);
+
+  // Clone a mission (esp. a Library template) into a fresh standalone op —
+  // copies flights + resources, no signups (backend cloneMission).
+  const clone = async (m) => {
+    const created = await api.post(`/api/missions/${m.id}/clone`, { name: `${m.name} (copy)` });
+    if (created?.id) navigate(`/missions/${created.id}`);
+  };
 
   if (!activeWing) return <div className="empty">No wing yet. <Link to="/wing">Set one up →</Link></div>;
 
@@ -57,17 +65,19 @@ export default function Missions() {
       ) : (
         <div className="card" style={{ padding: 0, marginTop: 14 }}>
           <table>
-            <thead><tr><th>Mission</th><th>Date</th><th>Status</th><th>Type</th><th>Aircraft</th><th>Seats</th></tr></thead>
+            <thead><tr><th>Mission</th><th>Date</th><th>Status</th><th>Type</th><th>Aircraft</th><th>Seats</th>{me.isAdmin && <th></th>}</tr></thead>
             <tbody>
               {missions.map((m) => (
                 <tr key={m.id}>
                   <td><Link to={`/missions/${m.id}`} className="callsign">{m.name}</Link>
+                    {m.type === 'library' && <span className="badge cap" style={{ marginLeft: 6 }}>📚 template</span>}
                     {m.campaign_name && <span className="small muted"> · {m.campaign_name}</span>}</td>
                   <td className="small">{fmt(m.start_at)}</td>
                   <td><span className={`badge ${m.status === 'active' ? 'active' : m.status === 'completed' ? 'qualified' : m.status === 'archived' ? 'retired' : 'reserve'}`}>{m.status}</span></td>
                   <td className="small">{m.type}</td>
                   <td className="small">{m.primary_aircraft || '—'}</td>
                   <td><span className="seat-pill">{m.seats_filled}/{m.seats_total}</span></td>
+                  {me.isAdmin && <td><button className="small" title="Clone into a new standalone mission (copies flights, no signups)" onClick={() => clone(m)}>{m.type === 'library' ? 'Use template' : 'Clone'}</button></td>}
                 </tr>
               ))}
             </tbody>
