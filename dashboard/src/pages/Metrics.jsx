@@ -55,6 +55,14 @@ export default function Metrics() {
       };
     });
   }, [series]);
+  // Marking worklist: tracked events that have already started but have zero
+  // attendance recorded — i.e. someone needs to mark them. Newest first.
+  const needsMarking = useMemo(() => {
+    const now = Date.now();
+    return series
+      .filter((e) => e.start_at <= now && (e.total_marks || 0) === 0)
+      .sort((a, b) => b.start_at - a.start_at);
+  }, [series]);
   useEffect(() => { load(); }, [range, activeWing]);
 
   const preset = (days) => () => setRange({ from: toIso(Date.now() - days * dayMs), to: toIso(Date.now() + dayMs) });
@@ -82,6 +90,22 @@ export default function Metrics() {
           <Stat label="Events Tracked" value={metrics.events_tracked} kind="info" sub={`${metrics.absent} absent rows total`} />
           <Stat label="Pilots Tracked" value={metrics.pilots_tracked} kind="info" sub="distinct pilots in window" />
           <Stat label="UA Instances" value={metrics.ua_instances} kind="warn" sub={`${metrics.excused} excused`} />
+        </div>
+      )}
+
+      {needsMarking.length > 0 && (
+        <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid var(--warn, #ffcc00)' }}>
+          <div className="between"><h3 style={{ margin: 0 }}>⚠ Needs attendance marking</h3>
+            <span className="badge warn">{needsMarking.length}</span></div>
+          <p className="muted small" style={{ marginTop: 4 }}>Tracked events that have started but have no attendance recorded yet.</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+            {needsMarking.slice(0, 12).map((e) => (
+              <Link key={e.id} to={`/events/${e.id}`} className="list-row" style={{ padding: '7px 10px', borderRadius: 6 }}>
+                <span>{e.kind === 'extra_credit' ? '★ ' : ''}{e.title}</span>
+                <span className="muted small">{new Date(e.start_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · mark →</span>
+              </Link>
+            ))}
+          </div>
         </div>
       )}
 
