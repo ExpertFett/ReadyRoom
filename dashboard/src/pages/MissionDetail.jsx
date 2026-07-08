@@ -175,6 +175,16 @@ function Flights({ m, squadrons, me, reload }) {
           </div>
         )}
       </div>
+      {m.flights.length > 0 && (() => {
+        const slots = m.flights.reduce((n, f) => n + (f.slots || 0), 0);
+        const filled = m.flights.reduce((n, f) => n + (f.filled || 0), 0);
+        const pct = slots ? Math.round((filled / slots) * 100) : 0;
+        return (
+          <p className="muted small" style={{ marginTop: -6 }}>
+            {filled}/{slots} seats filled · <strong style={{ color: pct >= 100 ? 'var(--accent-2, #4cd964)' : 'inherit' }}>{pct}% fill rate</strong>
+          </p>
+        );
+      })()}
       {adding && <FlightForm missionId={m.id} squadrons={squadrons} defaultAircraft={m.primary_aircraft} onDone={() => { setAdding(false); reload(); }} />}
       {!m.flights.length ? <div className="empty">No flights yet.</div> : (
         <div className="grid">

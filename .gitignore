@@ -14,3 +14,6 @@ smoke/
 
 # throwaway dev/verify scripts
 scripts/_*.mjs
+
+# internal competitor-teardown / planning notes (never ship)
+/_*.md

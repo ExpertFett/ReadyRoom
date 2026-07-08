@@ -57,7 +57,7 @@ export default function CarrierDetail() {
             <table>
               <thead><tr>
                 <th>Time</th><th>Pilot</th><th>Grade</th><th>Wire</th>
-                <th>A/C</th><th>AOA</th><th>L/U</th><th>G/S</th><th>Comments</th>{me.isAdmin && <th></th>}
+                <th>A/C</th><th>AOA</th><th>L/U</th><th>G/S</th><th>Case</th><th>Groove</th><th>Comments</th>{me.isAdmin && <th></th>}
               </tr></thead>
               <tbody>
                 {carrier.recent_traps.map((t) => (
@@ -74,6 +74,8 @@ export default function CarrierDetail() {
                     <td className="small">{t.aoa || '—'}</td>
                     <td className="small">{t.lineup || '—'}</td>
                     <td className="small">{t.glideslope || '—'}</td>
+                    <td className="small mono">{t.recovery_case ? `C${t.recovery_case}` : '—'}</td>
+                    <td className="small mono">{t.groove_time != null ? `${Number(t.groove_time).toFixed(1)}s` : '—'}</td>
                     <td className="small muted">{t.comments ? t.comments.slice(0, 80) : ''}</td>
                     {me.isAdmin && <td><button className="small" onClick={() => { setEditTrap(t); setLogging(false); setEditing(false); }}>edit</button></td>}
                   </tr>
@@ -122,10 +124,12 @@ function LogTrap({ carrierId, members, onDone, existing }) {
     member_id: existing.member_id || '', pilot_name: existing.pilot_name || '', airframe: existing.airframe || '',
     grade: existing.grade || 'OK', wire: existing.wire ?? '', aoa: existing.aoa || 'OK', lineup: existing.lineup || 'OK',
     glideslope: existing.glideslope || 'OK', ball_call: existing.ball_call || '', comments: existing.comments || '',
+    recovery_case: existing.recovery_case ?? '', groove_time: existing.groove_time ?? '',
     time_at: localIso(existing.time_at),
   } : {
     member_id: '', pilot_name: '', airframe: '', grade: 'OK', wire: 3,
     aoa: 'OK', lineup: 'OK', glideslope: 'OK', ball_call: '', comments: '',
+    recovery_case: '', groove_time: '',
     time_at: localIso(),
   });
   const [busy, setBusy] = useState(false);
@@ -175,6 +179,14 @@ function LogTrap({ carrierId, members, onDone, existing }) {
           <select value={f.lineup} onChange={set('lineup')}>{LINEUPS.map((v) => <option key={v}>{v}</option>)}</select></div>
         <div className="field"><label>Glideslope</label>
           <select value={f.glideslope} onChange={set('glideslope')}>{GS.map((v) => <option key={v}>{v}</option>)}</select></div>
+        <div className="field"><label>Case</label>
+          <select value={f.recovery_case} onChange={set('recovery_case')}>
+            <option value="">—</option>
+            <option value="1">Case I</option>
+            <option value="3">Case III</option>
+          </select></div>
+        <div className="field"><label>Groove time (s)</label>
+          <input type="number" step="0.1" min="0" value={f.groove_time} onChange={set('groove_time')} placeholder="e.g. 15.2" /></div>
       </div>
       <div className="field"><label>Ball call</label><input value={f.ball_call} onChange={set('ball_call')} placeholder='"207 Hornet ball 3.2 auto"' /></div>
       <div className="field"><label>LSO comments</label><textarea rows={2} value={f.comments} onChange={set('comments')} placeholder="Comments, deviations, conditions…" /></div>

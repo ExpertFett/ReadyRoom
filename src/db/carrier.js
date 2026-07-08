@@ -5,7 +5,7 @@
 // ball call, comments. Aggregate metrics (boarding rate, last-N greenie
 // board) are derived from the trap log.
 
-import db from './index.js';
+import db, { ensureColumn } from './index.js';
 
 // --- schema -------------------------------------------------------------
 db.exec(`
@@ -45,6 +45,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_traps_member_time  ON traps (member_id, time_at);
   CREATE INDEX IF NOT EXISTS idx_traps_event ON traps (event_id);
 `);
+
+// Added later: LSO detail the base schema didn't carry.
+//   groove_time    = seconds in the groove (X..fly-to-trap); LSO grades timing off it.
+//   recovery_case  = 1 or 3 (Case I overhead vs Case III instrument recovery).
+ensureColumn('traps', 'groove_time', 'REAL');
+ensureColumn('traps', 'recovery_case', 'INTEGER');
 
 // --- carriers CRUD ------------------------------------------------------
 const insertCarrier = db.prepare(`
@@ -135,9 +141,14 @@ function isBoarding(g) { return ['_OK_', 'OK', '(OK)', '--'].includes(g); }
 
 const insertTrap = db.prepare(`
   INSERT INTO traps (carrier_id, member_id, pilot_name, event_id, airframe, time_at,
-    grade, wire, aoa, lineup, glideslope, ball_call, comments, weather, recorded_by, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    grade, wire, aoa, lineup, glideslope, ball_call, comments, weather, recorded_by, created_at,
+    groove_time, recovery_case)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
+
+// null unless a positive number; groove is seconds (e.g. 15.2), case is 1 or 3.
+const normGroove = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Math.max(0, Number(v)));
+const normCase = (v) => ([1, 3].includes(Number(v)) ? Number(v) : null);
 const selectTrap = db.prepare('SELECT * FROM traps WHERE id = ?');
 const deleteTrapStmt = db.prepare('DELETE FROM traps WHERE id = ?');
 
@@ -161,6 +172,8 @@ export function recordTrap(carrierId, d, recordedBy) {
     str(d.weather, 200),
     recordedBy || null,
     now,
+    normGroove(d.groove_time),
+    normCase(d.recovery_case),
   );
   return getTrap(Number(r.lastInsertRowid));
 }
@@ -171,7 +184,8 @@ export function getTrap(id) {
 
 const updateTrapStmt = db.prepare(`
   UPDATE traps SET member_id = ?, pilot_name = ?, airframe = ?, time_at = ?,
-    grade = ?, wire = ?, aoa = ?, lineup = ?, glideslope = ?, ball_call = ?, comments = ?, weather = ?
+    grade = ?, wire = ?, aoa = ?, lineup = ?, glideslope = ?, ball_call = ?, comments = ?, weather = ?,
+    groove_time = ?, recovery_case = ?
   WHERE id = ?
 `);
 // Edit a logged trap (e.g. correct the grade/wire after the fact). Expects a
@@ -189,6 +203,8 @@ export function updateTrap(id, d) {
     d.wire == null || d.wire === '' ? null : Math.max(0, Math.min(4, Number(d.wire))),
     str(d.aoa, 20), str(d.lineup, 20), str(d.glideslope, 20),
     str(d.ball_call, 200), str(d.comments, 2000), str(d.weather, 200),
+    normGroove(d.groove_time),
+    normCase(d.recovery_case),
     id,
   );
   return getTrap(id);
