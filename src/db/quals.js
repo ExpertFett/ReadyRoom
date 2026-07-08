@@ -255,8 +255,12 @@ const selectMemberQualsForBoard = db.prepare(
   'SELECT member_id, status, expires_at, awarded_at FROM member_quals WHERE qual_id = ?'
 );
 const selectQualSignoffs = db.prepare(`
-  SELECT s.member_id, s.activity_id, s.status FROM member_activity_signoffs s
-  JOIN qual_activities a ON a.id = s.activity_id WHERE a.qual_id = ?
+  SELECT s.member_id, s.activity_id, s.status, s.signed_at,
+         sg.callsign AS signer_callsign, sg.name AS signer_name
+  FROM member_activity_signoffs s
+  JOIN qual_activities a ON a.id = s.activity_id
+  LEFT JOIN members sg ON sg.id = s.signer_member_id
+  WHERE a.qual_id = ?
 `);
 
 export function getTrainingBoard(qualId, { squadronId } = {}) {
@@ -281,7 +285,14 @@ export function getTrainingBoard(qualId, { squadronId } = {}) {
   const so = selectQualSignoffs.all(qualId);
   const key = (m, a) => `${m}:${a}`;
   const byKey = new Map(so.map((s) => [key(s.member_id, s.activity_id), s.status]));
+  // Signer traceability (Deckboss shows the signer's name in the cell): parallel
+  // meta grid so the cells[] status shape stays a plain string for the frontend.
+  const metaByKey = new Map(so.map((s) => [key(s.member_id, s.activity_id), {
+    signer: s.signer_callsign || s.signer_name || null,
+    signed_at: s.signed_at || null,
+  }]));
   // cells[row=activity][col=member] = status|null
   const cells = activities.map((a) => members.map((m) => byKey.get(key(m.id, a.id)) || null));
-  return { qual, activities, members, cells };
+  const cellMeta = activities.map((a) => members.map((m) => metaByKey.get(key(m.id, a.id)) || null));
+  return { qual, activities, members, cells, cellMeta };
 }

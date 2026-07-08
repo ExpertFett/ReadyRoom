@@ -389,11 +389,20 @@ export function apiRouter() {
   router.get('/squadrons/:id', (req, res) => {
     const sqn = getSquadron(Number(req.params.id));
     if (!sqn) return res.status(404).json({ error: 'not_found' });
+    // 90-day attendance % per member, keyed by member_id (Deckboss surfaces this
+    // right on the roster). Reuses the metrics query; only members with tracked
+    // events in the window get an entry.
+    const now = Date.now();
+    const att90 = {};
+    for (const p of getPilotPerformance(sqn.wing_id, now - 90 * 86400000, now)) {
+      if (p.events > 0) att90[p.member_id] = p.attendance_rate;
+    }
     res.json({
       ...sqn,
       members: getMembersBySquadron(sqn.id),    // flat list (kept for compatibility)
       roster: getSquadronRoster(sqn.id),        // grouped by subdivision, with derived tier
       readiness: getSquadronReadiness(sqn.id),  // tier counts
+      att90,                                    // { member_id: attendance_rate_% } over last 90d
       det_roster: sqn.kind === 'detachment' ? getDetachmentRoster(sqn.id) : null,
     });
   });

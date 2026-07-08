@@ -148,15 +148,20 @@ export default function TrainingBoard() {
                     </td>
                     {orderedMembers.map((m) => {
                       const status = cellsRow[m._idx];
+                      const meta = board.cellMeta?.[row.idx]?.[m._idx];
+                      // Signer traceability: "Signed by <callsign> · <date>".
+                      const sig = meta?.signer
+                        ? `Signed by ${meta.signer}${meta.signed_at ? ` · ${fmtDate(meta.signed_at)}` : ''}`
+                        : null;
                       if (!me.isAdmin) {
-                        return <td key={m.id} className={`cell ${status || 'unsigned'}`}>
+                        return <td key={m.id} className={`cell ${status || 'unsigned'}`} title={sig || undefined}>
                           {status === 'instructor' ? 'INSTR' : status === 'signed' ? '✓' : '—'}
                         </td>;
                       }
                       return (
                         <td key={m.id} className={`cell ${status || 'unsigned'}`}>
                           {status
-                            ? <button className="cell-btn" title="Click to clear" onClick={() => unsign(m.id, a.id)}>
+                            ? <button className="cell-btn" title={sig ? `${sig} — click to clear` : 'Click to clear'} onClick={() => unsign(m.id, a.id)}>
                                 {status === 'instructor' ? 'INSTR' : 'SIGNED'}
                               </button>
                             : <button className="cell-btn empty" title="Click to sign off" onClick={() => sign(m.id, a.id)}>·</button>}

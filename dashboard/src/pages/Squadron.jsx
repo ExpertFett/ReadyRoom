@@ -122,7 +122,14 @@ function Readiness({ readiness }) {
   );
 }
 
-function MemberRow({ m, extra }) {
+// 90-day attendance %, color-coded green/yellow/red (— when no tracked events).
+function AttCell({ pct }) {
+  if (pct == null) return <td className="small muted">—</td>;
+  const color = pct >= 70 ? '#4cd964' : pct >= 40 ? '#ffcc00' : '#ff6464';
+  return <td className="small mono" style={{ color, fontWeight: 600 }}>{pct}%</td>;
+}
+
+function MemberRow({ m, extra, att }) {
   return (
     <tr>
       <td className="small muted">{m.modex || '—'}</td>
@@ -134,6 +141,7 @@ function MemberRow({ m, extra }) {
       <td>{m.name || '—'}</td>
       <td className="small">{m.rank || '—'}</td>
       {extra}
+      <AttCell pct={att} />
       <td><Quals codes={m.qual_codes} /></td>
       <td><TierBadge tier={m.tier} /></td>
       <td><span className={`badge ${m.status}`}>{m.status}</span></td>
@@ -151,9 +159,9 @@ function SquadronRoster({ sqn }) {
           <h2>{g.label} <span className="muted small">({g.members.length})</span></h2>
           <div className="card" style={{ padding: 0 }}>
             <table>
-              <thead><tr><th>Modex</th><th>Callsign</th><th>Name</th><th>Rank</th><th>Billet</th><th>Quals</th><th>Tier</th><th>Status</th></tr></thead>
+              <thead><tr><th>Modex</th><th>Callsign</th><th>Name</th><th>Rank</th><th>Billet</th><th>90d Att</th><th>Quals</th><th>Tier</th><th>Status</th></tr></thead>
               <tbody>
-                {g.members.map((m) => <MemberRow key={m.id} m={m} extra={<td className="small">{m.billet || '—'}</td>} />)}
+                {g.members.map((m) => <MemberRow key={m.id} m={m} att={sqn.att90?.[m.id]} extra={<td className="small">{m.billet || '—'}</td>} />)}
               </tbody>
             </table>
           </div>
@@ -171,10 +179,10 @@ function DetachmentRoster({ sqn }) {
       <h2>Detachment roster <span className="muted small">({roster.length})</span></h2>
       <div className="card" style={{ padding: 0 }}>
         <table>
-          <thead><tr><th>Modex</th><th>Callsign</th><th>Name</th><th>Rank</th><th>Attach</th><th>Quals</th><th>Tier</th><th>Status</th></tr></thead>
+          <thead><tr><th>Modex</th><th>Callsign</th><th>Name</th><th>Rank</th><th>Attach</th><th>90d Att</th><th>Quals</th><th>Tier</th><th>Status</th></tr></thead>
           <tbody>
             {roster.map((m) => (
-              <MemberRow key={`${m.id}-${m.attach_type}`} m={m} extra={
+              <MemberRow key={`${m.id}-${m.attach_type}`} m={m} att={sqn.att90?.[m.id]} extra={
                 <td className="small">
                   <span className={`badge ${m.attach_type === 'FT' ? 'active' : 'reserve'}`}>{m.attach_type}</span>
                   {m.home_tag && <span className="muted"> {m.home_tag}</span>}
