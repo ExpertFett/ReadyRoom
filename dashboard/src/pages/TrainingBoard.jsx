@@ -26,6 +26,9 @@ const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString([], { month: '2-di
 export default function TrainingBoard() {
   const { qualId } = useParams();
   const { me } = useMe();
+  // IP capability (or admin) can sign off / clear activity cells. Editing the
+  // curriculum (add/delete activities) stays admin-only below.
+  const canSignoff = me.isAdmin || me.permissions?.includes('signoff_quals');
   const [board, setBoard] = useState(null);
   const [editAct, setEditAct] = useState(null);
   const load = async () => setBoard(await api.get(`/api/quals/${qualId}/board`));
@@ -153,7 +156,7 @@ export default function TrainingBoard() {
                       const sig = meta?.signer
                         ? `Signed by ${meta.signer}${meta.signed_at ? ` · ${fmtDate(meta.signed_at)}` : ''}`
                         : null;
-                      if (!me.isAdmin) {
+                      if (!canSignoff) {
                         return <td key={m.id} className={`cell ${status || 'unsigned'}`} title={sig || undefined}>
                           {status === 'instructor' ? 'INSTR' : status === 'signed' ? '✓' : '—'}
                         </td>;

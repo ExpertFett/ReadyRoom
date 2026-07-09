@@ -26,6 +26,8 @@ const fmt = (ms) => (ms ? new Date(ms).toLocaleDateString() : '—');
 
 export default function Training() {
   const { me, activeWing } = useMe();
+  // IP capability (or admin) can log training sessions.
+  const canLogTraining = me.isAdmin || me.permissions?.includes('log_training');
   const [summary, setSummary] = useState(null);
   const [logging, setLogging] = useState(false);
 
@@ -54,7 +56,7 @@ export default function Training() {
             Pilots: <b>{summary.length}</b> · Total Sessions: <b>{totalSessions}</b> · Total Hours: <b>{totalHours}</b>
           </p>
         </div>
-        {me.isAdmin && <button className="primary" onClick={() => setLogging((v) => !v)}>
+        {canLogTraining && <button className="primary" onClick={() => setLogging((v) => !v)}>
           {logging ? 'Cancel' : '+ Log session'}
         </button>}
       </div>

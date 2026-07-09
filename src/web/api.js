@@ -115,6 +115,7 @@ export function apiRouter() {
       isAdmin: actor.isAdmin,
       role: actor.role,
       member: actor.member,
+      permissions: actor.permissions,   // capability-granted perms (log_traps, signoff_quals, log_training)
       setupNeeded: accessibleWings.length === 0,
     });
   });
@@ -824,7 +825,7 @@ export function apiRouter() {
   });
 
   // sign-offs (admin/instructor): one per (member, activity)
-  router.post('/members/:id/signoffs/:activityId', requireAdmin, (req, res) => {
+  router.post('/members/:id/signoffs/:activityId', requirePermission('signoff_quals'), (req, res) => {
     const m = getMember(Number(req.params.id));
     const a = getActivity(Number(req.params.activityId));
     if (!m || !a) return res.status(404).json({ error: 'not_found' });
@@ -834,7 +835,7 @@ export function apiRouter() {
     });
     res.json({ ok: true });
   });
-  router.delete('/members/:id/signoffs/:activityId', requireAdmin, (req, res) => {
+  router.delete('/members/:id/signoffs/:activityId', requirePermission('signoff_quals'), (req, res) => {
     res.json({ ok: removeSignoff(Number(req.params.id), Number(req.params.activityId)) > 0 });
   });
 
@@ -1527,9 +1528,10 @@ export function apiRouter() {
     if (!wing) return res.status(404).json({ error: 'not_found' });
     res.json(getTrainingSummary(wing.id));
   });
-  router.post('/wings/:id/training-sessions', requireAdmin, (req, res) => {
+  router.post('/wings/:id/training-sessions', requirePermission('log_training'), (req, res) => {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, wing.id)) return res.status(403).json({ error: 'forbidden_wing' });
     try {
       const s = createTrainingSession(wing.id, req.body || {}, getActor(req).user?.id || null);
       audit(req, wing.id, 'logged', 'training_session', s.id,
@@ -1545,7 +1547,7 @@ export function apiRouter() {
   router.get('/members/:id/instructor-log', (req, res) => {
     res.json(getSessionsByInstructor(Number(req.params.id), Math.min(200, Number(req.query.limit) || 50)));
   });
-  router.put('/training-sessions/:id', requireAdmin, (req, res) => {
+  router.put('/training-sessions/:id', requirePermission('log_training'), (req, res) => {
     const s = updateTrainingSession(Number(req.params.id), req.body || {});
     if (!s) return res.status(404).json({ error: 'not_found' });
     res.json(s);

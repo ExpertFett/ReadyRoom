@@ -20,6 +20,9 @@ export default function CarrierDetail() {
   const [editing, setEditing] = useState(false);
   const [editTrap, setEditTrap] = useState(null);
 
+  // LSO capability (or admin) can log/correct traps even without full admin.
+  const canLogTraps = me.isAdmin || me.permissions?.includes('log_traps');
+
   const load = async () => {
     setCarrier(await api.get(`/api/carriers/${id}`));
   };
@@ -38,10 +41,10 @@ export default function CarrierDetail() {
           <h1>{carrier.name} {carrier.hull && <span className="muted">{carrier.hull}</span>}</h1>
           <p className="small muted">{carrier.class || '—'} class</p>
         </div>
-        {me.isAdmin && (
+        {(me.isAdmin || canLogTraps) && (
           <div className="row">
-            <button className="small" onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Edit'}</button>
-            <button className="primary" onClick={() => setLogging((v) => !v)}>{logging ? 'Cancel' : '+ Log trap'}</button>
+            {me.isAdmin && <button className="small" onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Edit'}</button>}
+            {canLogTraps && <button className="primary" onClick={() => setLogging((v) => !v)}>{logging ? 'Cancel' : '+ Log trap'}</button>}
           </div>
         )}
       </div>
@@ -57,7 +60,7 @@ export default function CarrierDetail() {
             <table>
               <thead><tr>
                 <th>Time</th><th>Pilot</th><th>Grade</th><th>Wire</th>
-                <th>A/C</th><th>AOA</th><th>L/U</th><th>G/S</th><th>Case</th><th>Groove</th><th>Comments</th>{me.isAdmin && <th></th>}
+                <th>A/C</th><th>AOA</th><th>L/U</th><th>G/S</th><th>Case</th><th>Groove</th><th>Comments</th>{canLogTraps && <th></th>}
               </tr></thead>
               <tbody>
                 {carrier.recent_traps.map((t) => (
@@ -77,7 +80,7 @@ export default function CarrierDetail() {
                     <td className="small mono">{t.recovery_case ? `C${t.recovery_case}` : '—'}</td>
                     <td className="small mono">{t.groove_time != null ? `${Number(t.groove_time).toFixed(1)}s` : '—'}</td>
                     <td className="small muted">{t.comments ? t.comments.slice(0, 80) : ''}</td>
-                    {me.isAdmin && <td><button className="small" onClick={() => { setEditTrap(t); setLogging(false); setEditing(false); }}>edit</button></td>}
+                    {canLogTraps && <td><button className="small" onClick={() => { setEditTrap(t); setLogging(false); setEditing(false); }}>edit</button></td>}
                   </tr>
                 ))}
               </tbody>
