@@ -163,7 +163,11 @@ export function updateMission(id, d) {
 export function deleteMission(id) { return deleteMissionStmt.run(id).changes; }
 
 // Dynamic filtered list for the "Manage Missions" table.
-export function listMissions(wingId, { status, type, campaign_id, aircraft, search } = {}) {
+const selectMyMissionFlight = db.prepare(`
+  SELECT f.callsign FROM mission_signups s JOIN mission_flights f ON f.id = s.flight_id
+  WHERE s.mission_id = ? AND s.member_id = ? LIMIT 1
+`);
+export function listMissions(wingId, { status, type, campaign_id, aircraft, search, sort, memberId } = {}) {
   const where = ['wing_id = ?'];
   const args = [wingId];
   if (MISSION_STATUS.includes(status)) { where.push('status = ?'); args.push(status); }
@@ -171,10 +175,21 @@ export function listMissions(wingId, { status, type, campaign_id, aircraft, sear
   if (Number(campaign_id)) { where.push('campaign_id = ?'); args.push(Number(campaign_id)); }
   if (aircraft) { where.push('primary_aircraft = ?'); args.push(aircraft); }
   if (search) { where.push('name LIKE ?'); args.push(`%${String(search).slice(0, 80)}%`); }
+  const ORDER = {
+    date_desc: 'COALESCE(start_at, created_at) DESC',
+    date_asc: 'COALESCE(start_at, created_at) ASC',
+    name: 'name COLLATE NOCASE ASC',
+    created: 'created_at DESC',
+  };
+  const orderBy = ORDER[sort] || ORDER.date_desc;
   const rows = db
-    .prepare(`SELECT * FROM missions WHERE ${where.join(' AND ')} ORDER BY COALESCE(start_at, created_at) DESC LIMIT 500`)
+    .prepare(`SELECT * FROM missions WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT 500`)
     .all(...args);
-  return rows.map((m) => ({ ...m, ...rollup(m.id), campaign_name: m.campaign_id ? getCampaign(m.campaign_id)?.name || null : null }));
+  return rows.map((m) => ({
+    ...m, ...rollup(m.id),
+    campaign_name: m.campaign_id ? getCampaign(m.campaign_id)?.name || null : null,
+    my_flight: memberId ? (selectMyMissionFlight.get(m.id, memberId)?.callsign || null) : null,
+  }));
 }
 
 // signed/total seat counts for a mission
@@ -223,6 +238,22 @@ export function updateFlight(id, d) {
 }
 export function deleteFlight(id) { return deleteFlightStmt.run(id).changes; }
 
+// Move a flight up/down among its mission's flights. Renormalizes sort_order to
+// the array index so subsequent swaps stay well-defined (manual flights all
+// default to sort_order 0). Returns true if the move happened.
+const setFlightOrderStmt = db.prepare('UPDATE mission_flights SET sort_order = ? WHERE id = ?');
+export function reorderFlight(flightId, direction) {
+  const f = selectFlight.get(flightId);
+  if (!f) return false;
+  const flights = selectFlightsByMission.all(f.mission_id);
+  const idx = flights.findIndex((x) => x.id === flightId);
+  const target = direction === 'up' ? idx - 1 : idx + 1;
+  if (idx < 0 || target < 0 || target >= flights.length) return false;
+  [flights[idx], flights[target]] = [flights[target], flights[idx]];
+  flights.forEach((fl, i) => setFlightOrderStmt.run(i, fl.id));
+  return true;
+}
+
 // --- signups ---------------------------------------------------------------
 const insertSignup = db.prepare(
   'INSERT INTO mission_signups (mission_id, flight_id, member_id, status, created_at) VALUES (?, ?, ?, ?, ?)'
@@ -256,6 +287,9 @@ export function signUp(flightId, memberId, status = 'signed') {
 export function getSignup(id) { return selectSignup.get(id) || null; }
 export function getFlightSignups(flightId) { return selectSignupsByFlight.all(flightId); }
 export function removeSignup(id) { return deleteSignupStmt.run(id).changes; }
+// Wipe every sign-up on a mission but keep the flights (the "Clear Assignments" bulk action).
+const deleteSignupsByMission = db.prepare('DELETE FROM mission_signups WHERE mission_id = ?');
+export function removeAllSignupsForMission(missionId) { return deleteSignupsByMission.run(missionId).changes; }
 
 // --- squadron access -------------------------------------------------------
 const insertAccess = db.prepare(

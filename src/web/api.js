@@ -10,7 +10,7 @@ import {
   createSquadron, getSquadrons, getSquadron, updateSquadron, deleteSquadron,
   createMember, getMember, getMembersByWing, getMembersBySquadron, updateMember, deleteMember,
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
-  createQual, getQuals, getQual, deleteQual, updateQual, bulkAssignQuals,
+  createQual, getQuals, getQual, deleteQual, updateQual, reorderQual, bulkAssignQuals,
   getModexPools, setModexPool, deleteModexPool, getAvailableModex,
   getQualTracks, createQualTrack, updateQualTrack, deleteQualTrack,
   enrollPilot, unenrollPilot, getEnrollees,
@@ -20,8 +20,8 @@ import {
 import {
   createCampaign, getCampaigns, getCampaign, updateCampaign, deleteCampaign,
   createMission, listMissions, getMissionFull, updateMission, deleteMission, cloneMission,
-  addFlight, getFlight, updateFlight, deleteFlight,
-  signUp, getSignup, removeSignup,
+  addFlight, getFlight, updateFlight, deleteFlight, reorderFlight,
+  signUp, getSignup, removeSignup, removeAllSignupsForMission,
   setMissionAccess,
   addResource, deleteResource,
   getResourceWithWing, setResourceFile, clearResourceFile,
@@ -749,6 +749,14 @@ export function apiRouter() {
     if (ok) audit(req, q.wing_id, 'deleted', 'qual', q.id, `Deleted qual ${q.code}`);
     res.json({ ok });
   });
+  // Move a qual up/down in display order.
+  router.post('/quals/:id/reorder', requireAdmin, (req, res) => {
+    const q = getQual(Number(req.params.id));
+    if (!q) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, q.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    const dir = req.body?.direction === 'up' ? 'up' : 'down';
+    res.json({ ok: reorderQual(q.id, dir), quals: getQuals(q.wing_id) });
+  });
 
   // ----- Phase 2 bulk operations -----
   router.post('/wings/:id/quals/bulk-assign', requireAdmin, (req, res) => {
@@ -937,6 +945,7 @@ export function apiRouter() {
     res.json(listMissions(wingId, {
       status: req.query.status, type: req.query.type,
       campaign_id: req.query.campaign_id, aircraft: req.query.aircraft, search: req.query.search,
+      sort: req.query.sort, memberId: getActor(req).member?.id || null,
     }));
   });
   router.post('/missions', requireAdmin, (req, res) => {
@@ -1049,6 +1058,15 @@ export function apiRouter() {
     const b = req.body || {};
     res.json(cloneMission(m.id, { wingId: m.wing_id, type: b.type || 'standalone', name: str(b.name, 160) }, getActor(req).user?.id || null));
   });
+  // Clear every sign-up on a mission but keep the flights (bulk "Clear Assignments").
+  router.post('/missions/:id/clear-signups', requireAdmin, (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, m.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    const cleared = removeAllSignupsForMission(m.id);
+    audit(req, m.wing_id, 'cleared', 'mission', m.id, `Cleared ${cleared} sign-up(s) from "${m.name}"`);
+    res.json({ ok: true, cleared, mission: getMissionFull(m.id) });
+  });
 
   // ----- flights -----
   router.post('/missions/:id/flights', requireAdmin, (req, res) => {
@@ -1062,6 +1080,13 @@ export function apiRouter() {
     res.json(updateFlight(f.id, req.body || {}));
   });
   router.delete('/flights/:id', requireAdmin, (req, res) => res.json({ ok: deleteFlight(Number(req.params.id)) > 0 }));
+  // Move a flight up/down in display order.
+  router.post('/flights/:id/reorder', requireAdmin, (req, res) => {
+    const f = getFlight(Number(req.params.id));
+    if (!f) return res.status(404).json({ error: 'not_found' });
+    const dir = req.body?.direction === 'up' ? 'up' : 'down';
+    res.json({ ok: reorderFlight(f.id, dir), mission: getMissionFull(f.mission_id) });
+  });
 
   // Import flights from a .miz upload (raw binary). Pass ?replace=1 to wipe existing flights first.
   router.post('/missions/:id/import-miz', requireAdmin, raw({ type: '*/*', limit: '20mb' }), (req, res) => {

@@ -13,12 +13,21 @@ const toLocalInput = (ms) => {
 };
 
 const STATUSES = [
-  { key: 'present', label: 'Present', cls: 'present' },
-  { key: 'extra_credit', label: 'Extra Credit', cls: 'extra' },
-  { key: 'excused', label: 'Excused', cls: 'excused' },
-  { key: 'ua', label: 'UA', cls: 'ua' },
-  { key: 'absent', label: 'Absent', cls: 'absent' },
+  { key: 'present', label: 'Present', short: 'Present', cls: 'present' },
+  { key: 'extra_credit', label: 'Extra Credit', short: 'EC', cls: 'extra' },
+  { key: 'excused', label: 'Excused', short: 'Excused', cls: 'excused' },
+  { key: 'ua', label: 'UA', short: 'UA', cls: 'ua' },
+  { key: 'absent', label: 'Absent', short: 'Absent', cls: 'absent' },
 ];
+
+const relTime = (ms) => {
+  if (!ms) return '';
+  const s = Math.round((Date.now() - ms) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60); if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+};
 
 const fmt = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'TBD');
 
@@ -151,6 +160,16 @@ export default function EventDetail() {
     load();
   };
 
+  // Live attendance summary + who last touched it (surfaced from recorded_by).
+  const roster = event.roster || [];
+  const counts = { present: 0, extra_credit: 0, excused: 0, ua: 0, absent: 0, unmarked: 0 };
+  let lastRec = null;
+  for (const m of roster) {
+    const st = m.attendance?.status;
+    if (st && counts[st] != null) counts[st] += 1; else counts.unmarked += 1;
+    if (m.attendance?.recorded_at && (!lastRec || m.attendance.recorded_at > lastRec.recorded_at)) lastRec = m.attendance;
+  }
+
   return (
     <div>
       <div className="crumbs"><Link to="/events">Events</Link> / {event.title}</div>
@@ -202,6 +221,32 @@ export default function EventDetail() {
         <div className="empty">No expected attendees. (Pick a host squadron when creating the event.)</div>
       ) : (
         <>
+          {/* Live summary tiles */}
+          <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            {[
+              { k: 'present', label: 'Present', cls: 'att-present' },
+              { k: 'excused', label: 'Excused', cls: 'att-excused' },
+              { k: 'ua', label: 'UA', cls: 'att-ua' },
+              { k: 'extra_credit', label: 'Extra', cls: 'att-extra_credit' },
+              { k: 'unmarked', label: 'Unmarked', cls: '' },
+            ].map((t) => (
+              <div key={t.k} className="card" style={{ padding: '6px 12px', minWidth: 78, textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{counts[t.k]}</div>
+                <div className="small muted">{t.label}</div>
+              </div>
+            ))}
+            <div className="card" style={{ padding: '6px 12px', minWidth: 78, textAlign: 'center' }}>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{roster.length ? Math.round(((counts.present + counts.extra_credit) / roster.length) * 100) : 0}%</div>
+              <div className="small muted">Attendance</div>
+            </div>
+          </div>
+          {lastRec?.recorded_at && (
+            <p className="muted small" style={{ marginTop: -4 }}>
+              Last updated {relTime(lastRec.recorded_at)}
+              {lastRec.recorded_by_callsign ? ` by ${lastRec.recorded_by_callsign}` : (lastRec.recorded_by ? ` by ${lastRec.recorded_by}` : '')}
+            </p>
+          )}
+
           {me.isAdmin && (
             <div className="row" style={{ marginBottom: 10 }}>
               <span className="muted small" style={{ alignSelf: 'center' }}>Bulk-mark unmarked:</span>
@@ -210,7 +255,7 @@ export default function EventDetail() {
           )}
           <div className="card" style={{ padding: 0 }}>
             <table>
-              <thead><tr><th>Modex</th><th>Callsign</th><th>Name</th><th>Squadron</th><th>Status</th>{me.isAdmin && <th></th>}</tr></thead>
+              <thead><tr><th>Modex</th><th>Callsign</th><th>Name</th><th>Squadron</th><th>Status</th>{me.isAdmin && <th>By</th>}</tr></thead>
               <tbody>
                 {event.roster.map((m) => (
                   <tr key={m.id}>
@@ -220,15 +265,21 @@ export default function EventDetail() {
                     <td className="small muted">{m.sqn_tag || '—'}</td>
                     <td>
                       {me.isAdmin ? (
-                        <select value={m.attendance?.status || ''} onChange={(e) => mark(m.id, e.target.value)} style={{ width: 130 }}>
-                          <option value="">—</option>
-                          {STATUSES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-                        </select>
+                        // Quick-toggle grid: click sets that status; click the active one to clear.
+                        <div className="row" style={{ gap: 3, flexWrap: 'wrap' }}>
+                          {STATUSES.map((s) => {
+                            const active = m.attendance?.status === s.key;
+                            return (
+                              <button key={s.key} className={`small${active ? ' primary' : ''}`} title={s.label}
+                                onClick={() => (active ? clear(m.id) : mark(m.id, s.key))}>{s.short}</button>
+                            );
+                          })}
+                        </div>
                       ) : (
                         m.attendance ? <span className={`badge att-${m.attendance.status}`}>{STATUSES.find((s) => s.key === m.attendance.status)?.label || m.attendance.status}</span> : <span className="muted">—</span>
                       )}
                     </td>
-                    {me.isAdmin && <td>{m.attendance && <button className="small" onClick={() => clear(m.id)}>clear</button>}</td>}
+                    {me.isAdmin && <td className="small muted" title={m.attendance?.recorded_at ? new Date(m.attendance.recorded_at).toLocaleString() : ''}>{m.attendance?.recorded_by_callsign || (m.attendance ? '—' : '')}</td>}
                   </tr>
                 ))}
               </tbody>

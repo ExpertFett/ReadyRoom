@@ -53,6 +53,13 @@ export default function ManageQuals({ wing }) {
     load();
   };
 
+  // Reorder a qual up/down — sets its display order across the board, the
+  // Training Board, and My Quals (all read quals in sort_order).
+  const move = async (q, direction) => {
+    const res = await api.post(`/api/quals/${q.id}/reorder`, { direction });
+    if (res?.quals) setQuals(res.quals); else load();
+  };
+
   return (
     <div>
       <div className="between">
@@ -109,7 +116,7 @@ export default function ManageQuals({ wing }) {
               <th>Code</th><th>Name</th><th>Flags</th><th>Currency</th><th>Deadline</th><th></th>
             </tr></thead>
             <tbody>
-              {quals.map((q) => (
+              {quals.map((q, i) => (
                 <tr key={q.id}>
                   <td><b>{q.code}</b></td>
                   <td>{q.name}</td>
@@ -123,6 +130,8 @@ export default function ManageQuals({ wing }) {
                   <td className="small">{q.completion_deadline_days ? `${q.completion_deadline_days}d` : '—'}</td>
                   <td>
                     <div className="row" style={{ gap: 4 }}>
+                      <button className="small" disabled={i === 0} onClick={() => move(q, 'up')} title="Move up">▲</button>
+                      <button className="small" disabled={i === quals.length - 1} onClick={() => move(q, 'down')} title="Move down">▼</button>
                       <button className="small" onClick={() => setEditing({ ...EMPTY, ...q })}>Edit</button>
                       <button className="small danger" onClick={() => remove(q)}>Delete</button>
                     </div>

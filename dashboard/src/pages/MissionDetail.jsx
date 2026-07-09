@@ -38,6 +38,16 @@ export default function MissionDetail() {
     navigate('/missions');
   };
 
+  // Bulk-remove every pilot sign-up but keep the flights (e.g. resetting a
+  // template mission before a new cycle).
+  const clearAssignments = async () => {
+    const filled = m.flights.reduce((n, f) => n + (f.filled || 0), 0);
+    if (!filled) return;
+    if (!confirm(`Clear all ${filled} sign-up(s) from "${m.name}"?\nFlights stay; every signed-up pilot is removed.`)) return;
+    await api.post(`/api/missions/${m.id}/clear-signups`);
+    load();
+  };
+
   // Publish (or re-sync) this mission as a sign-up event: turns each flight
   // seat into a signup slot, posts it to Discord via the Ops Bot, and links the
   // event so the planner's share link then pulls who actually signed up.
@@ -92,6 +102,9 @@ export default function MissionDetail() {
               {copied ? '✓ Link copied' : 'Copy sign-up link'}
             </button>
             <button className="small" onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Edit'}</button>
+            {m.flights.some((f) => f.filled > 0) && (
+              <button className="small" onClick={clearAssignments} title="Remove every pilot sign-up but keep the flights">Clear assignments</button>
+            )}
             <button className="danger small" onClick={del}>Delete</button>
           </div>
         )}
@@ -197,17 +210,18 @@ function Flights({ m, squadrons, me, reload }) {
       {adding && <FlightForm missionId={m.id} squadrons={squadrons} defaultAircraft={m.primary_aircraft} onDone={() => { setAdding(false); reload(); }} />}
       {!m.flights.length ? <div className="empty">No flights yet.</div> : (
         <div className="grid">
-          {m.flights.map((f) => <FlightCard key={f.id} flight={f} squadrons={squadrons} me={me} reload={reload} />)}
+          {m.flights.map((f, i) => <FlightCard key={f.id} flight={f} squadrons={squadrons} me={me} reload={reload} idx={i} count={m.flights.length} />)}
         </div>
       )}
     </section>
   );
 }
 
-function FlightCard({ flight, squadrons, me, reload }) {
+function FlightCard({ flight, squadrons, me, reload, idx = 0, count = 1 }) {
   const [editing, setEditing] = useState(false);
   const full = flight.filled >= flight.slots;
   const mine = flight.signups.find((s) => me.member && s.member_id === me.member.id);
+  const move = async (direction) => { await api.post(`/api/flights/${flight.id}/reorder`, { direction }); reload(); };
 
   const signMe = async () => {
     try { await api.post(`/api/flights/${flight.id}/signup`); reload(); }
@@ -223,7 +237,12 @@ function FlightCard({ flight, squadrons, me, reload }) {
       <div className="between">
         <div><span className="tag" style={{ fontWeight: 700 }}>{flight.callsign || 'Flight'}</span>
           <span className="seat-pill" style={{ marginLeft: 8 }}>{flight.filled}/{flight.slots}</span></div>
-        {me.isAdmin && <div className="small"><button className="small" onClick={() => setEditing(true)}>edit</button> <button className="small danger" onClick={delFlight}>×</button></div>}
+        {me.isAdmin && <div className="small row" style={{ gap: 4 }}>
+          <button className="small" disabled={idx === 0} onClick={() => move('up')} title="Move up">▲</button>
+          <button className="small" disabled={idx === count - 1} onClick={() => move('down')} title="Move down">▼</button>
+          <button className="small" onClick={() => setEditing(true)}>edit</button>
+          <button className="small danger" onClick={delFlight}>×</button>
+        </div>}
       </div>
       <div className="small muted">{flight.aircraft || '—'}{flight.role ? ` · ${flight.role}` : ''}</div>
       <div className="chip-row" style={{ margin: '10px 0' }}>

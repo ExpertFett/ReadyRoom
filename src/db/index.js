@@ -800,6 +800,20 @@ export function getQual(id) {
 export function deleteQual(id) {
   return deleteQualStmt.run(id).changes;
 }
+// Move a qual up/down among its wing's quals (renormalizes sort_order to the
+// display index so swaps stay well-defined). Returns true if the move happened.
+const setQualOrderStmt = db.prepare('UPDATE quals SET sort_order = ? WHERE id = ?');
+export function reorderQual(qualId, direction) {
+  const q = selectQual.get(qualId);
+  if (!q) return false;
+  const quals = selectQualsByWing.all(q.wing_id);
+  const idx = quals.findIndex((x) => x.id === qualId);
+  const target = direction === 'up' ? idx - 1 : idx + 1;
+  if (idx < 0 || target < 0 || target >= quals.length) return false;
+  [quals[idx], quals[target]] = [quals[target], quals[idx]];
+  quals.forEach((ql, i) => setQualOrderStmt.run(i, ql.id));
+  return true;
+}
 
 // --- Phase 2: bulk qualification assignment --------------------------------
 // Modes:

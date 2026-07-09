@@ -18,6 +18,7 @@ export default function Metrics() {
   const [metrics, setMetrics] = useState(null);
   const [perf, setPerf] = useState([]);
   const [series, setSeries] = useState([]);
+  const [mode, setMode] = useState('pct'); // 'pct' = attendance rate · 'count' = attended headcount
 
   const load = async () => {
     if (!activeWing) return;
@@ -31,19 +32,23 @@ export default function Metrics() {
     setMetrics(m); setPerf(p); setSeries(ts);
   };
 
+  // metric per event: attendance % or attended headcount (present + extra credit)
+  const attended = (e) => (e.present || 0) + (e.extra_credit || 0);
+  const rateColor = (r) => (r >= 75 ? '#4cd964' : r >= 50 ? '#ffcc00' : '#ff6464');
+
   // Per-event chart data (one bar per tracked event in window)
   const eventChart = useMemo(() => series.map((e) => ({
     label: new Date(e.start_at).toLocaleDateString([], { month: 'numeric', day: 'numeric' }),
-    value: e.attendance_rate,
-    color: e.attendance_rate >= 75 ? '#4cd964' : e.attendance_rate >= 50 ? '#ffcc00' : '#ff6464',
-  })), [series]);
+    value: mode === 'pct' ? e.attendance_rate : attended(e),
+    color: mode === 'pct' ? rateColor(e.attendance_rate) : '#4c8bf5',
+  })), [series, mode]);
 
-  // Day-of-week breakdown — average attendance % per weekday across the window
+  // Day-of-week breakdown — average per weekday across the window (rate or headcount)
   const dowChart = useMemo(() => {
     const sums = Object.fromEntries(DOW_ORDER.map((d) => [d, { total: 0, n: 0 }]));
     for (const e of series) {
       const d = DOW_ORDER[new Date(e.start_at).getDay()];
-      sums[d].total += e.attendance_rate;
+      sums[d].total += mode === 'pct' ? e.attendance_rate : attended(e);
       sums[d].n += 1;
     }
     return DOW_ORDER.map((d) => {
@@ -51,10 +56,10 @@ export default function Metrics() {
       return {
         label: d,
         value: avg,
-        color: sums[d].n === 0 ? '#444' : avg >= 75 ? '#4cd964' : avg >= 50 ? '#ffcc00' : '#ff6464',
+        color: sums[d].n === 0 ? '#444' : mode === 'pct' ? rateColor(avg) : '#4c8bf5',
       };
     });
-  }, [series]);
+  }, [series, mode]);
   // Marking worklist: tracked events that have already started but have zero
   // attendance recorded — i.e. someone needs to mark them. Newest first.
   const needsMarking = useMemo(() => {
@@ -111,12 +116,18 @@ export default function Metrics() {
 
       {series.length > 0 && (
         <>
-          <h2>All Events <span className="muted small">({series.length} tracked)</span></h2>
+          <div className="between">
+            <h2>All Events <span className="muted small">({series.length} tracked)</span></h2>
+            <div className="row" style={{ gap: 4 }}>
+              <button className={`small${mode === 'pct' ? ' primary' : ''}`} onClick={() => setMode('pct')}>%</button>
+              <button className={`small${mode === 'count' ? ' primary' : ''}`} onClick={() => setMode('count')}>Count</button>
+            </div>
+          </div>
           <div className="card" style={{ padding: 12, marginBottom: 14 }}>
             <BarChart data={eventChart} height={220} />
           </div>
 
-          <h2>By Day of Week <span className="muted small">(average rate)</span></h2>
+          <h2>By Day of Week <span className="muted small">({mode === 'pct' ? 'average rate' : 'average present'})</span></h2>
           <div className="card" style={{ padding: 12, marginBottom: 14 }}>
             <BarChart data={dowChart} height={180} />
           </div>

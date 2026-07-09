@@ -12,7 +12,8 @@ export default function Missions() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [missions, setMissions] = useState(null);
-  const [filters, setFilters] = useState({ status: '', type: '', search: '' });
+  const [aircraftOpts, setAircraftOpts] = useState([]);
+  const [filters, setFilters] = useState({ status: '', type: '', aircraft: '', search: '', sort: 'date_desc' });
   const [creating, setCreating] = useState(params.get('new') === '1');
 
   const load = async () => {
@@ -20,8 +21,13 @@ export default function Missions() {
     const q = new URLSearchParams({ wing_id: activeWing.id });
     if (filters.status) q.set('status', filters.status);
     if (filters.type) q.set('type', filters.type);
+    if (filters.aircraft) q.set('aircraft', filters.aircraft);
     if (filters.search) q.set('search', filters.search);
-    setMissions(await api.get(`/api/missions?${q}`));
+    if (filters.sort) q.set('sort', filters.sort);
+    const rows = await api.get(`/api/missions?${q}`);
+    setMissions(rows);
+    // Keep a stable dropdown of airframes from the unfiltered set.
+    if (!filters.aircraft) setAircraftOpts([...new Set(rows.map((m) => m.primary_aircraft).filter(Boolean))].sort());
   };
   useEffect(() => { load(); }, [activeWing, filters]);
 
@@ -57,6 +63,17 @@ export default function Missions() {
             <select value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })}>
               <option value="">All</option>{TYPES.map((s) => <option key={s}>{s}</option>)}
             </select></div>
+          <div style={{ width: 160 }}><label>Aircraft</label>
+            <select value={filters.aircraft} onChange={(e) => setFilters({ ...filters, aircraft: e.target.value })}>
+              <option value="">All aircraft</option>{aircraftOpts.map((a) => <option key={a}>{a}</option>)}
+            </select></div>
+          <div style={{ width: 150 }}><label>Sort by</label>
+            <select value={filters.sort} onChange={(e) => setFilters({ ...filters, sort: e.target.value })}>
+              <option value="date_desc">Date (newest)</option>
+              <option value="date_asc">Date (oldest)</option>
+              <option value="name">Name (A–Z)</option>
+              <option value="created">Recently added</option>
+            </select></div>
         </div>
       </div>
 
@@ -76,7 +93,8 @@ export default function Missions() {
                   <td><span className={`badge ${m.status === 'active' ? 'active' : m.status === 'completed' ? 'qualified' : m.status === 'archived' ? 'retired' : 'reserve'}`}>{m.status}</span></td>
                   <td className="small">{m.type}</td>
                   <td className="small">{m.primary_aircraft || '—'}</td>
-                  <td><span className="seat-pill">{m.seats_filled}/{m.seats_total}</span></td>
+                  <td><span className="seat-pill">{m.seats_filled}/{m.seats_total}</span>
+                    {m.my_flight && <span className="badge qualified" style={{ marginLeft: 6 }} title="You're signed up">✓ {m.my_flight}</span>}</td>
                   {me.isAdmin && <td><button className="small" title="Clone into a new standalone mission (copies flights, no signups)" onClick={() => clone(m)}>{m.type === 'library' ? 'Use template' : 'Clone'}</button></td>}
                 </tr>
               ))}

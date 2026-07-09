@@ -390,11 +390,13 @@ const deleteAttendanceStmt = db.prepare(
   'DELETE FROM event_attendance WHERE event_id = ? AND member_id = ?'
 );
 const selectEventAttendance = db.prepare(`
-  SELECT a.member_id, a.status, a.recorded_at, a.notes,
-         m.callsign, m.modex, m.name, m.squadron_id, sq.tag AS sqn_tag
+  SELECT a.member_id, a.status, a.recorded_at, a.notes, a.recorded_by,
+         m.callsign, m.modex, m.name, m.squadron_id, sq.tag AS sqn_tag,
+         rb.callsign AS recorded_by_callsign, rb.name AS recorded_by_name
   FROM event_attendance a
   JOIN members m ON m.id = a.member_id
   LEFT JOIN squadrons sq ON sq.id = m.squadron_id
+  LEFT JOIN members rb ON rb.discord_user_id = a.recorded_by
   WHERE a.event_id = ?
   ORDER BY sq.id ASC, m.modex ASC, m.callsign ASC
 `);
