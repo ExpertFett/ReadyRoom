@@ -187,21 +187,38 @@ function CreateEvent({ wing, onDone }) {
   const [flights, setFlights] = useState([]); // [{ name, tasking, seats, qual }]
   const [postMode, setPostMode] = useState('now'); // now | schedule | none
   const [postAt, setPostAt] = useState('');
+  const [repeat, setRepeat] = useState(false);
+  const [repeatWeeks, setRepeatWeeks] = useState(4);
+  const [repeatDays, setRepeatDays] = useState([]);
   useEffect(() => { api.get(`/api/squadrons?wing_id=${wing.id}`).then(setSquadrons); }, [wing.id]);
+
+  // Default the weekday set to the start date's weekday once a date is picked.
+  const anchorDow = f.start_at ? new Date(f.start_at).getDay() : null;
+  const days = repeatDays.length ? repeatDays : (anchorDow != null ? [anchorDow] : []);
+  const occ = repeat ? weeklyOccurrences(f.start_at, days, Number(repeatWeeks) || 0) : [];
+
   const submit = async (e) => {
     e.preventDefault();
     if (!f.title.trim() || !f.start_at) return;
-    const ev = await api.post('/api/events', {
+    const base = {
       wing_id: wing.id, ...f,
       // Convert the datetime-local string to epoch ms HERE, in the user's
       // timezone. If we sent the raw "2026-06-10T19:30" string, the server
       // (UTC on Railway) would parse it as UTC and shift the event by the
       // user's offset (e.g. 7:30pm MDT shown back as 1:30pm).
-      start_at: f.start_at ? new Date(f.start_at).getTime() : null,
+      start_at: new Date(f.start_at).getTime(),
       squadron_id: f.squadron_id ? Number(f.squadron_id) : null,
       ...flightsToRoles(flights),
-      discord_post_at: computePostAt(postMode, postAt),
-    });
+    };
+    // Recurring series: send the occurrence timestamps (series events don't
+    // auto-post to Discord). Single event keeps the discord_post_at behavior.
+    if (repeat && occ.length > 1) {
+      await api.post('/api/events', { ...base, occurrences: occ });
+      onDone();
+      navigate('/events');
+      return;
+    }
+    const ev = await api.post('/api/events', { ...base, discord_post_at: computePostAt(postMode, postAt) });
     onDone();
     navigate(`/events/${ev.id}`);
   };
@@ -238,8 +255,38 @@ function CreateEvent({ wing, onDone }) {
         <input type="checkbox" style={{ width: 'auto' }} checked={f.track_attendance} onChange={(e) => setF({ ...f, track_attendance: e.target.checked })} />
         Track attendance
       </label>
-      <DiscordPostFields mode={postMode} setMode={setPostMode} at={postAt} setAt={setPostAt} />
-      <button className="primary" style={{ marginTop: 10 }}>Create event →</button>
+
+      <div className="field">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={repeat} onChange={(e) => setRepeat(e.target.checked)} />
+          Repeat weekly
+        </label>
+        {repeat && (
+          <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
+            <span className="small">On</span>
+            <div className="row" style={{ gap: 3 }}>
+              {DOW_LABELS.map((lbl, i) => {
+                const on = days.includes(i);
+                return (
+                  <button type="button" key={i} className={`small ${on ? 'primary' : ''}`} style={{ width: 30, padding: '4px 0' }}
+                    onClick={() => setRepeatDays((prev) => {
+                      const cur = prev.length ? prev : (anchorDow != null ? [anchorDow] : []);
+                      return cur.includes(i) ? cur.filter((d) => d !== i) : [...cur, i];
+                    })}>{lbl}</button>
+                );
+              })}
+            </div>
+            <span className="small">for</span>
+            <input type="number" min="1" max="52" value={repeatWeeks} onChange={(e) => setRepeatWeeks(e.target.value)} style={{ width: 60 }} />
+            <span className="small">weeks</span>
+            <span className="small muted">→ {occ.length} event{occ.length === 1 ? '' : 's'}</span>
+          </div>
+        )}
+      </div>
+
+      {!(repeat && occ.length > 1) && <DiscordPostFields mode={postMode} setMode={setPostMode} at={postAt} setAt={setPostAt} />}
+      {repeat && occ.length > 1 && <p className="muted small">Series events are created but not auto-posted to Discord — post each from its event page.</p>}
+      <button className="primary" style={{ marginTop: 10 }}>{repeat && occ.length > 1 ? `Create ${occ.length} events →` : 'Create event →'}</button>
     </form>
   );
 }
@@ -273,6 +320,27 @@ export function DiscordPostFields({ mode, setMode, at, setAt }) {
     </div>
   );
 }
+
+// Weekly recurrence: given the anchor datetime-local string, a set of weekdays
+// (0=Sun..6=Sat) and a week count, return occurrence timestamps in the user's
+// local TZ (same clock time each day). Occurrences before the anchor are
+// dropped, so "starts Tue, repeat Tue+Thu, 4 weeks" begins on the chosen Tue.
+export function weeklyOccurrences(startLocal, weekdays, weeks) {
+  if (!startLocal || !weekdays.length || weeks < 1) return [];
+  const base = new Date(startLocal);
+  const hh = base.getHours(); const mm = base.getMinutes();
+  const week0Sun = new Date(base); week0Sun.setDate(base.getDate() - base.getDay()); week0Sun.setHours(0, 0, 0, 0);
+  const out = [];
+  for (let w = 0; w < weeks; w++) {
+    for (const wd of weekdays) {
+      const d = new Date(week0Sun); d.setDate(week0Sun.getDate() + w * 7 + wd); d.setHours(hh, mm, 0, 0);
+      if (d.getTime() >= base.getTime()) out.push(d.getTime());
+    }
+  }
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
+const DOW_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 // Standard fighter-flight position for the Nth seat (1-based): seat 1 is the
 // Flight Lead, seat 3 is the Section/Element Lead, the rest are wingmen.

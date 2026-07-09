@@ -1201,6 +1201,29 @@ export function apiRouter() {
     if (!str(b.title, 200)) return res.status(400).json({ error: 'missing_title' });
     const start = ms(b.start_at);
     if (!start) return res.status(400).json({ error: 'missing_start_at' });
+
+    // Recurring series: client sends occurrences[] (start timestamps computed in
+    // the user's TZ). >1 = a series — one event per occurrence sharing a
+    // recur_group. Series events do NOT auto-post to Discord (avoids blasting N
+    // panels at once); admins post them individually. Capped at 60.
+    const occ = Array.isArray(b.occurrences)
+      ? b.occurrences.map((x) => ms(x)).filter((x) => Number.isFinite(x)).sort((a, z) => a - z).slice(0, 60)
+      : [];
+    if (occ.length > 1) {
+      const group = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const actorId = getActor(req).user?.id || null;
+      const base = {
+        squadron_id: b.squadron_id ? Number(b.squadron_id) : null,
+        title: str(b.title, 200), description: str(b.description, 8000),
+        kind: b.kind, end_at: ms(b.end_at),
+        multi_squadron: !!b.multi_squadron, track_attendance: b.track_attendance !== false,
+        roles: b.roles, taskings: b.taskings, status: b.status, recur_group: group,
+      };
+      const created = occ.map((ts) => createEvent(wingId, { ...base, start_at: ts }, actorId));
+      audit(req, wingId, 'created', 'event', created[0].id, `Recurring event ×${created.length}: ${base.title}`);
+      return res.json({ series: true, count: created.length, first: created[0] });
+    }
+
     const event = createEvent(wingId, {
       squadron_id: b.squadron_id ? Number(b.squadron_id) : null,
       title: str(b.title, 200), description: str(b.description, 8000),

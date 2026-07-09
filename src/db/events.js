@@ -94,6 +94,10 @@ ensureColumn('events', 'mission_id', 'INTEGER');
 ensureColumn('events', 'result_summary', 'TEXT');
 // Lifecycle status (mirrors missions). NULL on legacy rows = treated as 'scheduled'.
 ensureColumn('events', 'status', 'TEXT');
+// Shared id across a recurring series (e.g. weekly Tue/Thu). NULL = one-off.
+// Lets a future feature edit/delete the whole series; occurrences are otherwise
+// independent events.
+ensureColumn('events', 'recur_group', 'TEXT');
 
 const EVENT_KINDS = ['squadron', 'extra_credit'];
 const EVENT_STATUS = ['scheduled', 'active', 'completed', 'cancelled'];
@@ -103,8 +107,8 @@ const LOA_STATUS = ['requested', 'approved', 'denied'];
 // --- events CRUD --------------------------------------------------------
 const insertEvent = db.prepare(`
   INSERT INTO events (wing_id, squadron_id, title, description, kind, start_at, end_at,
-    multi_squadron, track_attendance, roles, taskings, mission_id, status, created_by, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    multi_squadron, track_attendance, roles, taskings, mission_id, status, recur_group, created_by, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectEvent = db.prepare('SELECT * FROM events WHERE id = ?');
 const updateEventStmt = db.prepare(`
@@ -156,6 +160,7 @@ const normEvent = (d) => ({
   taskings: normTaskings(d.taskings),
   mission_id: d.mission_id ? Number(d.mission_id) : null,
   status: EVENT_STATUS.includes(d.status) ? d.status : 'scheduled',
+  recur_group: d.recur_group ? String(d.recur_group).slice(0, 60) : null,
 });
 
 export function createEvent(wingId, d, createdBy = null) {
@@ -164,7 +169,7 @@ export function createEvent(wingId, d, createdBy = null) {
   const info = insertEvent.run(
     wingId, e.squadron_id, e.title, e.description, e.kind, e.start_at, e.end_at,
     e.multi_squadron, e.track_attendance, JSON.stringify(e.roles), JSON.stringify(e.taskings),
-    e.mission_id, e.status, createdBy, now, now
+    e.mission_id, e.status, e.recur_group, createdBy, now, now
   );
   return parseEvent(selectEvent.get(Number(info.lastInsertRowid)));
 }
