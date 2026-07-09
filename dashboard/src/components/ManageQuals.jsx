@@ -18,16 +18,24 @@ const EMPTY = {
   code: '', name: '', description: '', sort_order: 0,
   is_basic: false, is_currency: false, is_wing_wide: true,
   is_tier: false, tier_order: 0, tier_label: '',
-  currency_days: '', completion_deadline_days: '',
+  currency_days: '', completion_deadline_days: '', squadron_id: '',
 };
 
 export default function ManageQuals({ wing }) {
   const [quals, setQuals] = useState([]);
+  const [dets, setDets] = useState([]);
   const [editing, setEditing] = useState(null); // null = not editing; {} = new; {id, ...} = update
   const [status, setStatus] = useState('');
 
   const load = () => api.get(`/api/quals?wing_id=${wing.id}`).then(setQuals);
   useEffect(() => { load(); }, [wing.id]);
+  // Detachments a qual can be scoped to (e.g. a C-130 qual bound to the VMGR det).
+  useEffect(() => {
+    api.get(`/api/squadrons?wing_id=${wing.id}`)
+      .then((sq) => setDets((sq || []).filter((s) => s.kind === 'detachment')))
+      .catch(() => {});
+  }, [wing.id]);
+  const detTag = (id) => dets.find((d) => d.id === Number(id))?.tag || dets.find((d) => d.id === Number(id))?.name;
 
   const save = async (e) => {
     e.preventDefault();
@@ -84,6 +92,13 @@ export default function ManageQuals({ wing }) {
               <input type="number" value={editing.completion_deadline_days ?? ''} onChange={(e) => setEditing({ ...editing, completion_deadline_days: e.target.value })} placeholder="30" /></div>
             <div className="field"><label>Tier label <span className="muted small">when achieved</span></label>
               <input value={editing.tier_label || ''} onChange={(e) => setEditing({ ...editing, tier_label: e.target.value })} placeholder="FMQ" /></div>
+            {dets.length > 0 && (
+              <div className="field"><label>Detachment scope <span className="muted small">optional</span></label>
+                <select value={editing.squadron_id || ''} onChange={(e) => setEditing({ ...editing, squadron_id: e.target.value })}>
+                  <option value="">Wing / all squadrons</option>
+                  {dets.map((d) => <option key={d.id} value={d.id}>{d.tag || d.name}</option>)}
+                </select></div>
+            )}
           </div>
           <div className="field"><label>Description</label>
             <textarea rows={3} value={editing.description || ''} onChange={(e) => setEditing({ ...editing, description: e.target.value })} placeholder="Course syllabus, objectives, expectations…" /></div>
@@ -125,6 +140,7 @@ export default function ManageQuals({ wing }) {
                     {q.is_currency ? <span className="badge cap" style={{ marginRight: 4 }}>Currency</span> : null}
                     {q.is_tier     ? <span className="badge cap" style={{ marginRight: 4 }}>Tier {q.tier_order || ''}</span> : null}
                     {q.is_wing_wide ? null : <span className="badge cap" style={{ marginRight: 4 }}>Sqn-only</span>}
+                    {q.squadron_id ? <span className="badge commander" style={{ marginRight: 4 }}>DET: {detTag(q.squadron_id) || q.squadron_id}</span> : null}
                   </td>
                   <td className="small">{q.currency_days ? `${q.currency_days}d` : '—'}</td>
                   <td className="small">{q.completion_deadline_days ? `${q.completion_deadline_days}d` : '—'}</td>

@@ -143,6 +143,9 @@ ensureColumn('quals', 'is_basic', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('quals', 'is_currency', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('quals', 'is_wing_wide', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('quals', 'completion_deadline_days', 'INTEGER');
+// Detachment scope — when set, this qual belongs to one squadron/detachment
+// (e.g. a C-130 qual bound to the VMGR det). null = normal wing/squadron qual.
+ensureColumn('quals', 'squadron_id', 'INTEGER');
 
 // --- Epic 5b: Ops Bot publish bridge (Discord event embeds) ---
 ensureColumn('wings', 'ops_bot_url', 'TEXT');     // base URL of the Ops Bot (e.g. https://dcsoptbot-production-0c4b.up.railway.app)
@@ -739,8 +742,8 @@ export function getAvailableModex(wingId, subdivision, limit = 20) {
 // ---------------------------------------------------------------------------
 const insertQual = db.prepare(`
   INSERT INTO quals (wing_id, code, name, category, description, sort_order, created_at,
-    is_basic, is_currency, is_wing_wide, completion_deadline_days)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    is_basic, is_currency, is_wing_wide, completion_deadline_days, squadron_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const selectQualsByWing = db.prepare(
   'SELECT * FROM quals WHERE wing_id = ? ORDER BY sort_order ASC, code ASC'
@@ -749,7 +752,7 @@ const selectQual = db.prepare('SELECT * FROM quals WHERE id = ?');
 const deleteQualStmt = db.prepare('DELETE FROM quals WHERE id = ?');
 const updateQualStmt = db.prepare(`
   UPDATE quals SET code = ?, name = ?, category = ?, description = ?, sort_order = ?,
-    is_basic = ?, is_currency = ?, is_wing_wide = ?, completion_deadline_days = ?
+    is_basic = ?, is_currency = ?, is_wing_wide = ?, completion_deadline_days = ?, squadron_id = ?
   WHERE id = ?
 `);
 
@@ -767,6 +770,7 @@ export function createQual(wingId, d) {
     d.is_wing_wide === false ? 0 : 1,
     Number.isFinite(Number(d.completion_deadline_days)) && Number(d.completion_deadline_days) > 0
       ? Number(d.completion_deadline_days) : null,
+    d.squadron_id ? Number(d.squadron_id) : null,
   );
   return selectQual.get(Number(info.lastInsertRowid));
 }
@@ -787,6 +791,7 @@ export function updateQual(id, d) {
       ? (Number.isFinite(Number(d.completion_deadline_days)) && Number(d.completion_deadline_days) > 0
           ? Number(d.completion_deadline_days) : null)
       : cur.completion_deadline_days,
+    d.squadron_id !== undefined ? (d.squadron_id ? Number(d.squadron_id) : null) : cur.squadron_id,
     id,
   );
   return selectQual.get(id);

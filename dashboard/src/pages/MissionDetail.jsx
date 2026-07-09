@@ -163,7 +163,24 @@ function EditMission({ m, onDone }) {
 
 function Flights({ m, squadrons, me, reload }) {
   const [adding, setAdding] = useState(false);
+  const [templates, setTemplates] = useState([]);
   const fileRef = useRef(null);
+
+  const loadTemplates = () => api.get(`/api/wings/${m.wing_id}/flight-templates`).then(setTemplates).catch(() => {});
+  useEffect(() => { if (me.isAdmin) loadTemplates(); }, [m.wing_id]);
+
+  // Save this mission's flights as a reusable "Deploy Squadron" package.
+  const saveTemplate = async () => {
+    const name = prompt('Name this flight package (e.g. "Standard SEAD"):', `${m.name} package`);
+    if (!name) return;
+    await api.post(`/api/wings/${m.wing_id}/flight-templates`, { from_mission_id: m.id, name });
+    loadTemplates();
+  };
+  const applyTemplate = async (id) => {
+    if (!id) return;
+    await api.post(`/api/missions/${m.id}/apply-template`, { template_id: Number(id) });
+    reload();
+  };
 
   const importMiz = async (file) => {
     const replace = m.flights.length > 0
@@ -188,6 +205,14 @@ function Flights({ m, squadrons, me, reload }) {
       <div className="between"><h2>Flights &amp; slots</h2>
         {me.isAdmin && (
           <div className="row">
+            {templates.length > 0 && (
+              <select className="small" defaultValue="" title="Add a saved flight package to this mission"
+                onChange={(e) => { applyTemplate(e.target.value); e.target.value = ''; }}>
+                <option value="">Apply template…</option>
+                {templates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.flights.length})</option>)}
+              </select>
+            )}
+            {m.flights.length > 0 && <button className="small" onClick={saveTemplate} title="Save these flights as a reusable package">Save as template</button>}
             <button className="small" onClick={() => fileRef.current?.click()}>Import .miz</button>
             <input
               ref={fileRef} type="file" accept=".miz" style={{ display: 'none' }}

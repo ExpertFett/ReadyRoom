@@ -10,7 +10,7 @@ const dayMs = 86400000;
 const toIso = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 export default function Metrics() {
-  const { activeWing } = useMe();
+  const { me, activeWing } = useMe();
   const [range, setRange] = useState(() => ({
     from: toIso(Date.now() - 90 * dayMs),
     to: toIso(Date.now() + dayMs),
@@ -132,6 +132,18 @@ export default function Metrics() {
             <BarChart data={dowChart} height={180} />
           </div>
         </>
+      )}
+
+      {me.isAdmin && (
+        <div className="card" style={{ margin: '16px 0' }}>
+          <div className="between"><h3 style={{ margin: 0 }}>Export CSV</h3>
+            <span className="muted small">opens in Excel / Sheets</span></div>
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <a className="small button" href={`/api/wings/${activeWing.id}/export/roster.csv`} download>Roster</a>
+            <a className="small button" href={`/api/wings/${activeWing.id}/export/attendance.csv?from=${new Date(range.from).getTime()}&to=${new Date(range.to).getTime()}`} download>Attendance (this range)</a>
+            <a className="small button" href={`/api/wings/${activeWing.id}/export/quals.csv`} download>Qualifications</a>
+          </div>
+        </div>
       )}
 
       <h2>Individual pilot performance</h2>

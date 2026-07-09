@@ -21,6 +21,7 @@ import {
   createCampaign, getCampaigns, getCampaign, updateCampaign, deleteCampaign,
   createMission, listMissions, getMissionFull, updateMission, deleteMission, cloneMission,
   addFlight, getFlight, updateFlight, deleteFlight, reorderFlight,
+  createFlightTemplate, createTemplateFromMission, listFlightTemplates, getFlightTemplate, deleteFlightTemplate, applyTemplateToMission,
   signUp, getSignup, removeSignup, removeAllSignupsForMission,
   setMissionAccess,
   addResource, deleteResource,
@@ -50,6 +51,7 @@ import {
 import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
 import { publishEventNow } from '../services/eventPublish.js';
 import { refreshWingDigest } from '../services/eventDigest.js';
+import { rosterCsv, attendanceCsv, qualsCsv } from '../services/csvExport.js';
 import {
   createCarrier, getCarriers, getCarrier, updateCarrier, deleteCarrier,
   recordTrap, deleteTrap, getTrap, updateTrap,
@@ -681,6 +683,7 @@ export function apiRouter() {
         is_basic: !!b.is_basic, is_currency: !!b.is_currency,
         is_wing_wide: b.is_wing_wide === undefined ? true : !!b.is_wing_wide,
         completion_deadline_days: b.completion_deadline_days,
+        squadron_id: b.squadron_id || null,
       });
       if (b.is_tier) {
         setQualTier(qual.id, {
@@ -723,6 +726,7 @@ export function apiRouter() {
       is_currency: b.is_currency,
       is_wing_wide: b.is_wing_wide,
       completion_deadline_days: b.completion_deadline_days,
+      squadron_id: b.squadron_id,
     });
     // Tier + cadence are stored separately by other helpers — apply them if present.
     if (b.is_tier !== undefined || b.tier_order !== undefined || b.tier_label !== undefined) {
@@ -1118,6 +1122,47 @@ export function apiRouter() {
       flights_created: created.length,
       mission: getMissionFull(mission.id),
     });
+  });
+
+  // ----- flight templates ("Deploy Squadron" packages) -----
+  router.get('/wings/:id/flight-templates', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, wing.id)) return res.status(403).json({ error: 'forbidden_wing' });
+    res.json(listFlightTemplates(wing.id));
+  });
+  router.post('/wings/:id/flight-templates', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, wing.id)) return res.status(403).json({ error: 'forbidden_wing' });
+    const b = req.body || {};
+    const uid = getActor(req).user?.id || null;
+    let tpl;
+    if (b.from_mission_id) {
+      const m = getMissionFull(Number(b.from_mission_id));
+      if (!m || m.wing_id !== wing.id) return res.status(400).json({ error: 'bad_mission' });
+      tpl = createTemplateFromMission(m.id, str(b.name, 80), uid);
+      if (!tpl) return res.status(400).json({ error: 'no_flights' });
+    } else {
+      tpl = createFlightTemplate(wing.id, { name: str(b.name, 80), squadron_id: b.squadron_id, flights: b.flights }, uid);
+    }
+    audit(req, wing.id, 'created', 'flight_template', tpl.id, `Saved flight template "${tpl.name}"`);
+    res.json(tpl);
+  });
+  router.delete('/flight-templates/:id', requireAdmin, (req, res) => {
+    const tpl = getFlightTemplate(Number(req.params.id));
+    if (!tpl) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, tpl.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    res.json({ ok: deleteFlightTemplate(tpl.id) > 0 });
+  });
+  router.post('/missions/:id/apply-template', requireAdmin, (req, res) => {
+    const m = getMissionFull(Number(req.params.id));
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, m.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    const tpl = getFlightTemplate(Number(req.body?.template_id));
+    if (!tpl || tpl.wing_id !== m.wing_id) return res.status(400).json({ error: 'bad_template' });
+    audit(req, m.wing_id, 'updated', 'mission', m.id, `Applied flight template "${tpl.name}"`);
+    res.json(applyTemplateToMission(m.id, tpl.id));
   });
 
   // ----- squadron access & resources -----
@@ -1568,6 +1613,33 @@ export function apiRouter() {
     const to = ms(req.query.to);
     if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
     res.json(getAttendanceTimeseries(wing.id, from, to));
+  });
+
+  // ----- CSV exports (admin data portability) -----
+  const sendCsv = (res, filename, text) => {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(String.fromCharCode(0xfeff) + text); // BOM so Excel opens UTF-8 correctly
+  };
+  const csvGuard = (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) { res.status(404).json({ error: 'not_found' }); return null; }
+    if (!assertWingAccess(req, wing.id)) { res.status(403).json({ error: 'forbidden_wing' }); return null; }
+    return wing;
+  };
+  router.get('/wings/:id/export/roster.csv', requireAdmin, (req, res) => {
+    const wing = csvGuard(req, res); if (!wing) return;
+    sendCsv(res, `roster-${wing.tag || wing.id}.csv`, rosterCsv(wing.id));
+  });
+  router.get('/wings/:id/export/attendance.csv', requireAdmin, (req, res) => {
+    const wing = csvGuard(req, res); if (!wing) return;
+    const to = ms(req.query.to) ?? Date.now();
+    const from = ms(req.query.from) ?? (to - 180 * 86400000);
+    sendCsv(res, `attendance-${wing.tag || wing.id}.csv`, attendanceCsv(wing.id, from, to));
+  });
+  router.get('/wings/:id/export/quals.csv', requireAdmin, (req, res) => {
+    const wing = csvGuard(req, res); if (!wing) return;
+    sendCsv(res, `quals-${wing.tag || wing.id}.csv`, qualsCsv(wing.id));
   });
 
   // ----- Phase 3.2: training session logging -----

@@ -41,10 +41,15 @@ export default function Calendar() {
   const [upcoming, setUpcoming] = useState([]);
   const [creating, setCreating] = useState(false);
   const [squads, setSquads] = useState([]);
+  const [loas, setLoas] = useState([]);
 
   // Squadron calendar colors — tint each event chip by its host squadron.
   useEffect(() => {
     if (activeWing) api.get(`/api/squadrons?wing_id=${activeWing.id}`).then(setSquads).catch(() => {});
+  }, [activeWing]);
+  // Approved LOAs — overlay who's on leave on the month grid.
+  useEffect(() => {
+    if (activeWing) api.get(`/api/wings/${activeWing.id}/loas`).then((l) => setLoas((l || []).filter((x) => x.status === 'approved'))).catch(() => {});
   }, [activeWing]);
 
   // Month grid: the visible 6-week window.
@@ -79,6 +84,12 @@ export default function Calendar() {
   const today = isoDay(new Date());
   const sqColor = {};
   for (const s of squads) if (s.calendar_color) sqColor[s.id] = s.calendar_color;
+  // Approved LOAs covering a given calendar day.
+  const dayLoas = (d) => {
+    const s = new Date(d); s.setHours(0, 0, 0, 0);
+    const ds = s.getTime(); const de = ds + 86400000;
+    return loas.filter((l) => l.start_at <= de && l.end_at >= ds);
+  };
 
   const fmtMonth = cursor.toLocaleString([], { month: 'long', year: 'numeric' });
   const move = (delta) => () => {
@@ -129,6 +140,13 @@ export default function Calendar() {
                       <span className="cal-evt-time">{evtTime(e.start_at)}</span> {e.title}
                     </Link>
                   ))}
+                  {(() => {
+                    const l = dayLoas(d);
+                    return l.length ? (
+                      <div className="small muted" style={{ marginTop: 2 }}
+                        title={`On leave: ${l.map((x) => x.callsign || x.modex || '?').join(', ')}`}>🌴 {l.length} on leave</div>
+                    ) : null;
+                  })()}
                 </div>
               );
             })}
@@ -143,6 +161,7 @@ export default function Calendar() {
             </span>
             <span>📌 Posted to Discord</span>
             <span>⏳ Scheduled to post</span>
+            <span>🌴 On leave (LOA)</span>
             <span className="muted">Left bar = squadron color</span>
           </div>
         </>

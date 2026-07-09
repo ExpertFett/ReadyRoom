@@ -75,6 +75,17 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_resources_mission ON mission_resources (mission_id);
+
+  CREATE TABLE IF NOT EXISTS flight_templates (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    wing_id     INTEGER NOT NULL REFERENCES wings(id) ON DELETE CASCADE,
+    squadron_id INTEGER REFERENCES squadrons(id) ON DELETE SET NULL,
+    name        TEXT NOT NULL,
+    flights     TEXT NOT NULL,   -- JSON: [{callsign, aircraft, role, slots, squadron_id, notes}]
+    created_by  TEXT,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_flight_templates_wing ON flight_templates (wing_id);
 `);
 
 // Real file attachments on a resource (vs a plain url link). Mirrors the Docs
@@ -450,6 +461,49 @@ export function cloneMission(id, { wingId, type = 'standalone', name } = {}, cre
   }
   for (const r of src.resources) addResource(clone.id, r);
   return getMissionFull(clone.id);
+}
+
+// --- flight templates ("Deploy Squadron" reusable packages) ----------------
+// A saved set of flights (callsign+aircraft+role+seats) a squadron can drop
+// into any mission in one click, instead of rebuilding the package each time.
+const insertTemplate = db.prepare(
+  'INSERT INTO flight_templates (wing_id, squadron_id, name, flights, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+);
+const selectTemplatesByWing = db.prepare('SELECT * FROM flight_templates WHERE wing_id = ? ORDER BY name COLLATE NOCASE ASC');
+const selectTemplate = db.prepare('SELECT * FROM flight_templates WHERE id = ?');
+const deleteTemplateStmt = db.prepare('DELETE FROM flight_templates WHERE id = ?');
+
+const parseTemplateFlights = (json) => { try { const a = JSON.parse(json); return Array.isArray(a) ? a : []; } catch { return []; } };
+const rowTemplate = (r) => (r ? { ...r, flights: parseTemplateFlights(r.flights) } : null);
+
+export function createFlightTemplate(wingId, { name, squadron_id, flights }, createdBy = null) {
+  const list = (Array.isArray(flights) ? flights : []).slice(0, 30).map((f) => normFlight(f));
+  const info = insertTemplate.run(
+    wingId, squadron_id ? Number(squadron_id) : null,
+    String(name || 'Template').slice(0, 80), JSON.stringify(list), createdBy, Date.now()
+  );
+  return rowTemplate(selectTemplate.get(Number(info.lastInsertRowid)));
+}
+// Snapshot an existing mission's flights as a reusable template.
+export function createTemplateFromMission(missionId, name, createdBy = null) {
+  const mission = getMissionFull(missionId);
+  if (!mission || !mission.flights.length) return null;
+  const flights = mission.flights.map((f) => ({
+    callsign: f.callsign, aircraft: f.aircraft, role: f.role, slots: f.slots, squadron_id: f.squadron_id, notes: f.notes,
+  }));
+  return createFlightTemplate(mission.wing_id, { name: name || `${mission.name} package`, flights }, createdBy);
+}
+export function listFlightTemplates(wingId) { return selectTemplatesByWing.all(wingId).map(rowTemplate); }
+export function getFlightTemplate(id) { return rowTemplate(selectTemplate.get(id)); }
+export function deleteFlightTemplate(id) { return deleteTemplateStmt.run(id).changes; }
+// Append a template's flights to a mission (keeps existing flights).
+export function applyTemplateToMission(missionId, templateId) {
+  const mission = selectMission.get(missionId);
+  const tpl = getFlightTemplate(templateId);
+  if (!mission || !tpl) return null;
+  let order = selectFlightsByMission.all(missionId).length;
+  for (const f of tpl.flights) addFlight(missionId, { ...f, sort_order: order++ });
+  return getMissionFull(missionId);
 }
 
 // --- dashboard -------------------------------------------------------------
