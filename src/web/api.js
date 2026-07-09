@@ -23,6 +23,7 @@ import {
   signUp, getSignup, removeSignup,
   setMissionAccess,
   addResource, deleteResource,
+  getResourceWithWing, setResourceFile, clearResourceFile,
   getDashboard,
 } from '../db/missions.js';
 import {
@@ -1082,7 +1083,52 @@ export function apiRouter() {
     const b = req.body || {};
     res.json(addResource(m.id, { kind: b.kind, label: str(b.label, 200), url: str(b.url, 1000) }));
   });
-  router.delete('/resources/:id', requireAdmin, (req, res) => res.json({ ok: deleteResource(Number(req.params.id)) > 0 }));
+  router.delete('/resources/:id', requireAdmin, (req, res) => {
+    const r = getResourceWithWing(Number(req.params.id));
+    if (!r) return res.json({ ok: false });
+    if (!assertWingAccess(req, r.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    if (r.file_path) deleteDocFile(r.file_path);   // drop the attached file too
+    res.json({ ok: deleteResource(r.id) > 0 });
+  });
+
+  // Attach a real file to a mission resource (raw bytes; mirrors /documents/:id/file).
+  // Every path is tenant-guarded by assertWingAccess on the resource's wing.
+  router.put('/resources/:id/file', requireAdmin, raw({ type: '*/*', limit: MAX_DOC_FILE_BYTES + 64 }), (req, res) => {
+    const r = getResourceWithWing(Number(req.params.id));
+    if (!r) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, r.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    if (!req.body || !req.body.length) return res.status(400).json({ error: 'empty_body' });
+    if (req.body.length > MAX_DOC_FILE_BYTES) return res.status(413).json({ error: 'too_large' });
+    const rawHeader = req.get('x-file-name') || req.query.filename || 'file';
+    let rawName; try { rawName = decodeURIComponent(rawHeader); } catch { rawName = String(rawHeader); }
+    const mime = req.get('x-file-type') || req.get('content-type') || 'application/octet-stream';
+    if (r.file_path) deleteDocFile(r.file_path);
+    const rel = saveDocFile(r.wing_id, `m${r.id}`, rawName, req.body);   // m<id> namespaces vs doc ids
+    const updated = setResourceFile(r.id, { file_path: rel, file_name: rawName, mime_type: mime, file_size: req.body.length });
+    audit(req, r.wing_id, 'uploaded', 'mission_resource', r.id, `Uploaded ${rawName} (${(req.body.length / 1024).toFixed(1)} KB)`);
+    res.json(updated);
+  });
+
+  router.delete('/resources/:id/file', requireAdmin, (req, res) => {
+    const r = getResourceWithWing(Number(req.params.id));
+    if (!r) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, r.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    if (r.file_path) deleteDocFile(r.file_path);
+    res.json(clearResourceFile(r.id));
+  });
+
+  router.get('/resources/:id/file', (req, res) => {
+    const r = getResourceWithWing(Number(req.params.id));
+    if (!r) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, r.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    if (!r.file_path) return res.status(404).json({ error: 'no_file' });
+    const file = readDocFile(r.file_path);
+    if (!file) return res.status(404).json({ error: 'file_missing' });
+    res.setHeader('Content-Type', r.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Length', file.size);
+    res.setHeader('Content-Disposition', `attachment; filename="${(r.file_name || 'file').replace(/"/g, '')}"`);
+    res.send(file.buffer);
+  });
 
   // ----- signups (self-service, or admin signing on behalf) -----
   router.post('/flights/:id/signup', (req, res) => {

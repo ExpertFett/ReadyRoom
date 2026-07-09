@@ -1,4 +1,4 @@
-import db from './index.js';
+import db, { ensureColumn } from './index.js';
 import { getEventByMission, getEventSignupsForShare } from './events.js';
 
 // --- schema ---------------------------------------------------------------
@@ -76,6 +76,13 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_resources_mission ON mission_resources (mission_id);
 `);
+
+// Real file attachments on a resource (vs a plain url link). Mirrors the Docs
+// file columns; the bytes live on disk via services/fileStorage.js.
+ensureColumn('mission_resources', 'file_path', 'TEXT');
+ensureColumn('mission_resources', 'file_name', 'TEXT');
+ensureColumn('mission_resources', 'mime_type', 'TEXT');
+ensureColumn('mission_resources', 'file_size', 'INTEGER');
 
 const MISSION_TYPES = ['campaign', 'standalone', 'library'];
 const MISSION_STATUS = ['planning', 'active', 'completed', 'archived'];
@@ -289,6 +296,24 @@ export function addResource(missionId, { kind, label, url }) {
 }
 export function getResource(id) { return selectResource.get(id) || null; }
 export function deleteResource(id) { return deleteResourceStmt.run(id).changes; }
+
+// Resource joined with its owning wing — for file-storage pathing + tenant guard.
+const selectResourceWing = db.prepare(
+  'SELECT r.*, m.wing_id FROM mission_resources r JOIN missions m ON m.id = r.mission_id WHERE r.id = ?'
+);
+export function getResourceWithWing(id) { return selectResourceWing.get(id) || null; }
+
+const setResourceFileStmt = db.prepare(
+  'UPDATE mission_resources SET file_path = ?, file_name = ?, mime_type = ?, file_size = ? WHERE id = ?'
+);
+export function setResourceFile(id, { file_path, file_name, mime_type, file_size }) {
+  setResourceFileStmt.run(file_path, file_name, mime_type, file_size, id);
+  return selectResource.get(id);
+}
+export function clearResourceFile(id) {
+  setResourceFileStmt.run(null, null, null, null, id);
+  return selectResource.get(id);
+}
 
 // --- composite reads -------------------------------------------------------
 export function getMissionFull(id) {

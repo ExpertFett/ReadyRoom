@@ -316,16 +316,21 @@ function Access({ m, squadrons, isAdmin, reload }) {
   );
 }
 
+const fmtBytes = (n) => (!n ? '' : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
 function Resources({ m, isAdmin, reload }) {
-  const [f, setF] = useState({ kind: 'link', label: '', url: '' });
+  const [f, setF] = useState({ kind: 'briefing', label: '', url: '' });
+  const [file, setFile] = useState(null);
   const add = async (e) => {
     e.preventDefault();
-    if (!f.url && !f.label) return;
-    await api.post(`/api/missions/${m.id}/resources`, f);
-    setF({ kind: 'link', label: '', url: '' });
+    if (!f.url && !f.label && !file) return;
+    const created = await api.post(`/api/missions/${m.id}/resources`, { ...f, label: f.label || (file ? file.name : '') });
+    if (file && created?.id) await api.upload(`/api/resources/${created.id}/file`, file);
+    setF({ kind: 'briefing', label: '', url: '' }); setFile(null);
     reload();
   };
   const del = async (id) => { await api.del(`/api/resources/${id}`); reload(); };
+  const upload = async (id, fl) => { if (fl) { await api.upload(`/api/resources/${id}/file`, fl); reload(); } };
   return (
     <section className="card">
       <h3>Files &amp; resources</h3>
@@ -333,8 +338,18 @@ function Resources({ m, isAdmin, reload }) {
       {m.resources.map((r) => (
         <div key={r.id} className="between" style={{ padding: '4px 0' }}>
           <div><span className="badge" style={{ marginRight: 6 }}>{r.kind}</span>
-            {r.url ? <a href={r.url} target="_blank" rel="noreferrer">{r.label || r.url}</a> : (r.label || '—')}</div>
-          {isAdmin && <button className="small danger" onClick={() => del(r.id)}>×</button>}
+            {r.file_path
+              ? <a href={`/api/resources/${r.id}/file`} target="_blank" rel="noopener noreferrer">{r.file_name || r.label || 'download'}</a>
+              : r.url ? <a href={r.url} target="_blank" rel="noreferrer">{r.label || r.url}</a> : (r.label || '—')}
+            {r.file_size ? <span className="muted small"> · {fmtBytes(r.file_size)}</span> : null}
+          </div>
+          {isAdmin && (
+            <div className="row" style={{ gap: 4 }}>
+              <label className="small" style={{ cursor: 'pointer' }}>{r.file_path ? 'replace' : 'upload'}
+                <input type="file" style={{ display: 'none' }} onChange={(e) => { const fl = e.target.files?.[0]; e.target.value = ''; upload(r.id, fl); }} /></label>
+              <button className="small danger" onClick={() => del(r.id)}>×</button>
+            </div>
+          )}
         </div>
       ))}
       {isAdmin && (
@@ -346,7 +361,8 @@ function Resources({ m, isAdmin, reload }) {
               </select></div>
             <div style={{ flex: 1 }}><label>Label</label><input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="Briefing PDF" /></div>
           </div>
-          <div className="field" style={{ marginTop: 8 }}><label>URL</label><input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://…" /></div>
+          <div className="field" style={{ marginTop: 8 }}><label>URL <span className="muted small">(or attach a file below)</span></label><input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://…" /></div>
+          <div className="field" style={{ marginTop: 8 }}><label>File <span className="muted small">(max 25 MB)</span></label><input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} /></div>
           <button className="small">Add resource</button>
         </form>
       )}
