@@ -72,3 +72,35 @@ setInterval(() => {
     /* ignore */
   }
 }, 60 * 60 * 1000).unref();
+
+// --- admin session management ---
+// We aggregate by the logged-in user and act on user IDs, never exposing raw
+// session IDs (those are effectively bearer secrets) to any client.
+const listActiveStmt = db.prepare('SELECT sid, sess, expire FROM sessions WHERE expire > ?');
+
+function parseUser(sessJson) {
+  try { return JSON.parse(sessJson)?.user || null; } catch { return null; }
+}
+
+// One row per logged-in user with an active session: { user, sessions, lastExpire }.
+export function listActiveUsers() {
+  const byUser = new Map();
+  for (const r of listActiveStmt.all(Date.now())) {
+    const u = parseUser(r.sess);
+    if (!u?.id) continue;
+    const cur = byUser.get(u.id) || { user: u, sessions: 0, lastExpire: 0 };
+    cur.sessions += 1;
+    cur.lastExpire = Math.max(cur.lastExpire, r.expire);
+    byUser.set(u.id, cur);
+  }
+  return [...byUser.values()].sort((a, b) => b.lastExpire - a.lastExpire);
+}
+
+// Force-logout: delete every session belonging to a Discord user id. Returns count.
+export function revokeUserSessions(userId) {
+  let n = 0;
+  for (const r of db.prepare('SELECT sid, sess FROM sessions').all()) {
+    if (parseUser(r.sess)?.id === String(userId)) { delStmt.run(r.sid); n += 1; }
+  }
+  return n;
+}

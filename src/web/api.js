@@ -65,6 +65,7 @@ import {
 import { saveDocFile, readDocFile, deleteDocFile, MAX_DOC_FILE_BYTES } from '../services/fileStorage.js';
 import { getBaseUrl } from '../config.js';
 import { requireAuth, requireAdmin, requirePermission, getActor } from './auth.js';
+import { listActiveUsers, revokeUserSessions } from './sessionStore.js';
 import { parseMizSlots, flightsFromSlots } from '../services/mizParser.js';
 
 const cleanId = (v) => (v ? String(v).replace(/[^0-9]/g, '') || null : null);
@@ -113,6 +114,7 @@ export function apiRouter() {
     res.json({
       user: actor.user,
       isAdmin: actor.isAdmin,
+      root: actor.root,                 // super-admin (ROOT_ADMIN_IDS / dev) — gates app-wide admin UI
       role: actor.role,
       member: actor.member,
       permissions: actor.permissions,   // capability-granted perms (log_traps, signoff_quals, log_training)
@@ -1765,6 +1767,22 @@ export function apiRouter() {
       console.error('[seed-demo] failed:', err);
       res.status(500).json({ error: err.message || 'seed_failed' });
     }
+  });
+
+  // ----- session management (root-only; sessions are app-wide) -----
+  router.get('/admin/sessions', (req, res) => {
+    if (!getActor(req).root) return res.status(403).json({ error: 'root_only' });
+    res.json(listActiveUsers());
+  });
+  router.post('/admin/sessions/revoke', (req, res) => {
+    const actor = getActor(req);
+    if (!actor.root) return res.status(403).json({ error: 'root_only' });
+    const userId = String(req.body?.user_id || '');
+    if (!userId) return res.status(400).json({ error: 'missing_user_id' });
+    const revoked = revokeUserSessions(userId);
+    // Not audited — the audit log is wing-scoped and this is an app-wide action.
+    console.log(`[sessions] ${actor.user?.username || actor.user?.id} revoked ${revoked} session(s) for user ${userId}`);
+    res.json({ ok: true, revoked });
   });
 
   // ----- audit log (admin-only) -----

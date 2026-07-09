@@ -47,6 +47,7 @@ export default function WingHome() {
       {me.isAdmin && <SuiteConnect />}
       {me.isAdmin && <Ingest wingId={wing.id} />}
       {me.isAdmin && <DiscordPublish wing={wing} />}
+      {me.root && <Sessions />}
       {me.isAdmin && (
         <DangerZone
           wing={wing}
@@ -88,6 +89,42 @@ function DangerZone({ wing, onDeleted }) {
           {busy ? 'Deleting…' : `Delete ${target} permanently`}
         </button>
         {err && <span className="muted small" style={{ marginLeft: 10, color: 'var(--danger)' }}>{err}</span>}
+      </div>
+    </section>
+  );
+}
+
+// Root-only: active login sessions across the whole app. Aggregated by user;
+// "Revoke" force-logs-out that user everywhere. Session IDs are never exposed.
+function Sessions() {
+  const [rows, setRows] = useState(null);
+  const load = () => api.get('/api/admin/sessions').then(setRows).catch(() => setRows([]));
+  useEffect(() => { load(); }, []);
+  const revoke = async (r) => {
+    if (!window.confirm(`Log out ${r.user.username || r.user.id} on all devices?`)) return;
+    await api.post('/api/admin/sessions/revoke', { user_id: r.user.id });
+    load();
+  };
+  if (rows === null) return null;
+  return (
+    <section style={{ marginTop: 28 }}>
+      <h2>Active sessions <span className="muted small">({rows.length})</span></h2>
+      <div className="card" style={{ padding: 0 }}>
+        {!rows.length ? <p className="muted small" style={{ padding: 12 }}>No active sessions.</p> : (
+          <table>
+            <thead><tr><th>User</th><th>Sessions</th><th>Latest expiry</th><th></th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.user.id}>
+                  <td>{r.user.username || r.user.id}{r.user.id && <span className="muted small"> · {r.user.id}</span>}</td>
+                  <td className="small">{r.sessions}</td>
+                  <td className="small muted">{new Date(r.lastExpire).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
+                  <td><button className="small danger" onClick={() => revoke(r)}>Revoke</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   );
