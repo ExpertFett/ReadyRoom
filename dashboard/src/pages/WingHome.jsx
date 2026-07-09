@@ -631,6 +631,25 @@ function Ingest({ wingId }) {
         </ol>
 
         <div className="callout">
+          <b>🎮 Don't have the DCS hook installed yet?</b>
+          <div className="muted small" style={{ marginTop: 4 }}>
+            The hook is a small file that runs on your DCS server PC and sends flight data out — nothing here
+            works until it's installed. <b>Get the one-click installer from the Ops Bot,</b> not from Ready Room:
+            it has to be pre-configured with your server's private URL, and that URL lives on the Ops Bot side.
+          </div>
+          <ul className="small" style={{ marginTop: 6, marginBottom: 6 }}>
+            <li>On the <b>Ops Bot dashboard → DCS Server</b> page, click <b>Download installer</b>.</li>
+            <li>Unzip it and double-click <code>Install.cmd</code> — it finds your DCS folder and installs everything.</li>
+            <li>Then do the two steps above so the Ops Bot forwards those sorties here.</li>
+          </ul>
+          <div style={{ marginTop: 4 }}>
+            <a className="small primary" href={`${CANONICAL_OPS_BOT_URL}/dcs`} target="_blank" rel="noopener noreferrer">
+              Open Ops Bot → DCS Server ↗
+            </a>
+          </div>
+        </div>
+
+        <div className="callout">
           <b>📛 How pilot names get matched to the roster</b>
           <p className="small" style={{ margin: '4px 0 0' }}>
             DCS reports each pilot's <i>in-game name</i>, which won't always match their roster entry. Ready Room

@@ -64,7 +64,7 @@ import {
 } from '../db/docs.js';
 import { saveDocFile, readDocFile, deleteDocFile, MAX_DOC_FILE_BYTES } from '../services/fileStorage.js';
 import { getBaseUrl } from '../config.js';
-import { requireAuth, requireAdmin, getActor } from './auth.js';
+import { requireAuth, requireAdmin, requirePermission, getActor } from './auth.js';
 import { parseMizSlots, flightsFromSlots } from '../services/mizParser.js';
 
 const cleanId = (v) => (v ? String(v).replace(/[^0-9]/g, '') || null : null);
@@ -742,7 +742,7 @@ export function apiRouter() {
     res.json(result);
   });
 
-  router.post('/quals/:id/bulk-signoff', requireAdmin, (req, res) => {
+  router.post('/quals/:id/bulk-signoff', requirePermission('signoff_quals'), (req, res) => {
     const q = getQual(Number(req.params.id));
     if (!q) return res.status(404).json({ error: 'not_found' });
     const b = req.body || {};
@@ -1839,7 +1839,7 @@ export function apiRouter() {
   });
 
   // traps
-  router.post('/carriers/:id/traps', requireAdmin, (req, res) => {
+  router.post('/carriers/:id/traps', requirePermission('log_traps'), (req, res) => {
     const c = getCarrier(Number(req.params.id));
     if (!c) return res.status(404).json({ error: 'not_found' });
     try {
@@ -1851,7 +1851,7 @@ export function apiRouter() {
       res.status(400).json({ error: err.message || 'record_failed' });
     }
   });
-  router.put('/traps/:id', requireAdmin, (req, res) => {
+  router.put('/traps/:id', requirePermission('log_traps'), (req, res) => {
     const t = getTrap(Number(req.params.id));
     if (!t) return res.status(404).json({ error: 'not_found' });
     try {

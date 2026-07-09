@@ -62,14 +62,44 @@ export function isRoot(req) {
   return config.rootAdminIds.has(u.id);
 }
 
-// The actor for this request: session user, their matched member record, and effective role.
+// --- capability-based permissions (RBAC) ---
+//
+// ADDITIVE model: admins/root always pass everything; roster CAPABILITY tags
+// (LSO, IP, …) grant specific EXTRA permissions to non-admins. This only ever
+// GRANTS access — it never removes anything from admins — so switching an
+// endpoint from requireAdmin to requirePermission can't lock anyone out.
+const CAP_PERMISSIONS = {
+  LSO: ['log_traps'],                  // Landing Signal Officer → log/correct carrier traps
+  IP: ['signoff_quals', 'log_training'], // Instructor Pilot → sign off quals + log training
+};
+// The full set of gate-able permissions (used to compute an admin's grants).
+export const ALL_PERMISSIONS = ['log_traps', 'signoff_quals', 'log_training'];
+
+function capsOf(member) {
+  return String(member?.capabilities || '')
+    .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+}
+function computePermissions(isAdmin, member) {
+  if (isAdmin) return [...ALL_PERMISSIONS];
+  const caps = capsOf(member);
+  return ALL_PERMISSIONS.filter((p) => caps.some((c) => (CAP_PERMISSIONS[c] || []).includes(p)));
+}
+
+// True if the actor holds a permission (admins always do).
+export function can(actor, permission) {
+  return !!actor && (actor.isAdmin || (actor.permissions || []).includes(permission));
+}
+
+// The actor for this request: session user, their matched member record, effective
+// role, and computed permission set.
 export function getActor(req) {
   const user = req.session?.user || null;
   const root = isRoot(req);
   // Map any logged-in user (incl. the local dev user) to their roster member by Discord ID.
   const member = user ? getMemberByDiscord(user.id) : null;
   const role = root ? 'admin' : member?.app_role || 'guest';
-  return { user, root, member, role, isAdmin: root || role === 'admin' };
+  const isAdmin = root || role === 'admin';
+  return { user, root, member, role, isAdmin, permissions: computePermissions(isAdmin, member) };
 }
 
 export function requireAuth(req, res, next) {
@@ -80,4 +110,13 @@ export function requireAuth(req, res, next) {
 export function requireAdmin(req, res, next) {
   if (getActor(req).isAdmin) return next();
   res.status(403).json({ error: 'forbidden' });
+}
+
+// Gate an endpoint on a specific permission. Admins always pass; otherwise the
+// actor needs a capability that grants it. Usage: requirePermission('log_traps').
+export function requirePermission(permission) {
+  return (req, res, next) => {
+    if (can(getActor(req), permission)) return next();
+    res.status(403).json({ error: 'forbidden' });
+  };
 }
