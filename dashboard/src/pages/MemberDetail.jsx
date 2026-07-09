@@ -7,6 +7,12 @@ import { GradePill } from './Carriers.jsx';
 const STATUS = ['active', 'reserve', 'loa', 'retired'];
 const QUAL_STATUS = ['qualified', 'training', 'expired'];
 export const CAPABILITIES = ['JTAC', 'GM', 'ATC', 'LSO', 'IP', 'AWACS', 'FAC'];
+// What a capability GRANTS in the app (mirrors auth.js CAP_PERMISSIONS). Tags
+// not listed are informational only (no extra access yet).
+const CAP_GRANTS = {
+  LSO: 'can log & correct carrier traps',
+  IP: 'can sign off quals + log training sessions',
+};
 
 export default function MemberDetail() {
   const { id } = useParams();
@@ -179,6 +185,11 @@ function CapabilitiesField({ value, onChange }) {
           );
         })}
       </div>
+      {[...set].filter((c) => CAP_GRANTS[c]).length > 0 && (
+        <div className="muted small" style={{ marginTop: 6 }}>
+          {[...set].filter((c) => CAP_GRANTS[c]).map((c) => <div key={c}>• <b>{c}</b> {CAP_GRANTS[c]}</div>)}
+        </div>
+      )}
     </div>
   );
 }
