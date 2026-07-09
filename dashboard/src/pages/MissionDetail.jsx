@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
+import { Markdown } from '../components/Markdown.jsx';
 
 const TYPES = ['standalone', 'campaign', 'library'];
 const STATUS = ['planning', 'active', 'completed', 'archived'];
@@ -97,7 +98,7 @@ export default function MissionDetail() {
       </div>
 
       {editing && <EditMission m={m} onDone={() => { setEditing(false); load(); }} />}
-      {m.description && !editing && <div className="card" style={{ whiteSpace: 'pre-wrap' }}>{m.description}</div>}
+      {m.description && !editing && <div className="card"><Markdown text={m.description} /></div>}
 
       <Flights m={m} squadrons={squadrons} me={me} reload={load} />
 
@@ -111,6 +112,7 @@ export default function MissionDetail() {
 
 function EditMission({ m, onDone }) {
   const [f, setF] = useState({ ...m, start_at: toLocalInput(m.start_at) });
+  const [preview, setPreview] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const save = async (e) => {
     e.preventDefault();
@@ -133,7 +135,14 @@ function EditMission({ m, onDone }) {
         <div className="field"><label>Date &amp; time</label><input type="datetime-local" value={f.start_at} onChange={set('start_at')} /></div>
         <div className="field"><label>Duration (min)</label><input type="number" value={f.duration_min || ''} onChange={set('duration_min')} /></div>
       </div>
-      <div className="field"><label>Description</label><textarea rows={3} value={f.description || ''} onChange={set('description')} /></div>
+      <div className="field">
+        <div className="between"><label style={{ margin: 0 }}>Briefing</label>
+          <button type="button" className="small" onClick={() => setPreview((v) => !v)}>{preview ? 'Edit' : 'Preview'}</button></div>
+        {preview
+          ? <div className="card" style={{ marginTop: 4 }}>{f.description ? <Markdown text={f.description} /> : <span className="muted small">Nothing to preview.</span>}</div>
+          : <textarea rows={6} value={f.description || ''} onChange={set('description')} placeholder="Objectives, threats, notes… Markdown: **bold**, *italic*, # heading, - list, [link](url)" />}
+        <span className="muted small">Markdown supported — headings, bold/italic, lists, links.</span>
+      </div>
       <button className="primary">Save</button>
     </form>
   );
