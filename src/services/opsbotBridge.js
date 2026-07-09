@@ -85,6 +85,58 @@ export async function editEvent(wing, messageId, payload) {
 }
 
 /**
+ * Post the auto-updating "upcoming events" digest. Returns the new message id.
+ * @returns {Promise<{message_id:string, channel_id:string} | null>}
+ */
+export async function publishDigest(wing, payload) {
+  if (!wing?.ops_bot_url || !wing?.ops_bot_token) return null;
+  const base = wing.ops_bot_url.replace(/\/+$/, '');
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${base}/integrations/readyroom/digest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${wing.ops_bot_token}` },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) { console.warn('[opsbotBridge] digest post failed:', res.status); return null; }
+    const data = await res.json();
+    if (!data?.message_id) return null;
+    return { message_id: String(data.message_id), channel_id: String(data.channel_id || '') };
+  } catch (err) {
+    if (err.name !== 'AbortError') console.warn('[opsbotBridge] digest POST error:', err.message);
+    return null;
+  } finally { clearTimeout(t); }
+}
+
+/**
+ * Refresh (edit) the existing digest message in place. Returns false if the
+ * message is gone (caller should re-post), true on success.
+ * @returns {Promise<boolean | 'gone'>}
+ */
+export async function editDigest(wing, messageId, payload) {
+  if (!wing?.ops_bot_url || !wing?.ops_bot_token || !messageId) return false;
+  const base = wing.ops_bot_url.replace(/\/+$/, '');
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${base}/integrations/readyroom/digest/${encodeURIComponent(messageId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${wing.ops_bot_token}` },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+    if (res.status === 404) return 'gone';   // message deleted on Discord — re-post
+    if (!res.ok) { console.warn('[opsbotBridge] digest edit failed:', res.status); return false; }
+    return true;
+  } catch (err) {
+    if (err.name !== 'AbortError') console.warn('[opsbotBridge] digest PATCH error:', err.message);
+    return false;
+  } finally { clearTimeout(t); }
+}
+
+/**
  * Delete a published embed. Treated as success even if the message is already gone.
  * @param {{ops_bot_url: string|null, ops_bot_token: string|null}} wing
  * @param {string} messageId

@@ -126,6 +126,10 @@ ensureColumn('squadrons', 'archived', 'INTEGER NOT NULL DEFAULT 0');
 // these are only hints, so no migration of existing values is needed.
 ensureColumn('wings', 'rank_list', 'TEXT');
 ensureColumn('wings', 'billet_list', 'TEXT');
+// Recurring "upcoming events" Discord digest: one message kept refreshed by a
+// scheduler when enabled. digest_message_id is the message we edit in place.
+ensureColumn('wings', 'digest_enabled', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('wings', 'digest_message_id', 'TEXT');
 ensureColumn('quals', 'is_tier', 'INTEGER NOT NULL DEFAULT 0');        // counts toward readiness tier
 ensureColumn('quals', 'tier_order', 'INTEGER');                        // progression order (lower = earlier)
 ensureColumn('quals', 'tier_label', 'TEXT');                           // tier granted when achieved (e.g. CMQ -> "FMQ")
@@ -277,6 +281,20 @@ export function userHasWingAccess(discordUserId, wingId) {
 export function getWing(id) {
   return selectWing.get(id) || null;
 }
+const setDigestEnabledStmt = db.prepare('UPDATE wings SET digest_enabled = ? WHERE id = ?');
+const setDigestMsgStmt = db.prepare('UPDATE wings SET digest_message_id = ? WHERE id = ?');
+export function setWingDigestEnabled(id, enabled) {
+  setDigestEnabledStmt.run(enabled ? 1 : 0, id);
+  return getWing(id);
+}
+export function setWingDigestMessageId(id, messageId) {
+  setDigestMsgStmt.run(messageId || null, id);
+}
+// Wings with the digest turned on AND an Ops Bot wired — for the scheduler.
+export function getDigestWings() {
+  return selectWings.all().filter((w) => w.digest_enabled && w.ops_bot_url && w.ops_bot_token && !w.discord_paused);
+}
+
 export function updateWing(id, { name, tag, description, rank_list, billet_list }) {
   const cur = getWing(id);
   if (!cur) return null;

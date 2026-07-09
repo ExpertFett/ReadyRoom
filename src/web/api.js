@@ -6,6 +6,7 @@ import { seedDemoWing } from '../services/demoSeeder.js';
 import {
   createWing, getWings, getWingsForUser, userHasWingAccess, getWing, updateWing, deleteWing,
   getWingIngestToken, regenerateWingIngestToken, setWingOpsBot, setWingDiscordPaused, getLastPublishedEvent,
+  setWingDigestEnabled,
   createSquadron, getSquadrons, getSquadron, updateSquadron, deleteSquadron,
   createMember, getMember, getMembersByWing, getMembersBySquadron, updateMember, deleteMember,
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
@@ -48,6 +49,7 @@ import {
 } from '../db/events.js';
 import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
 import { publishEventNow } from '../services/eventPublish.js';
+import { refreshWingDigest } from '../services/eventDigest.js';
 import {
   createCarrier, getCarriers, getCarrier, updateCarrier, deleteCarrier,
   recordTrap, deleteTrap, getTrap, updateTrap,
@@ -370,6 +372,25 @@ export function apiRouter() {
     audit(req, wing.id, 'updated', 'ops_bot_config', wing.id,
       updated.ops_bot_url ? `Discord publish wired to ${updated.ops_bot_url}` : 'Discord publish unwired');
     res.json(updated);
+  });
+
+  // Recurring "upcoming events" digest — one auto-refreshed Discord message.
+  router.put('/wings/:id/digest', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, wing.id)) return res.status(403).json({ error: 'forbidden_wing' });
+    const enabled = !!req.body?.enabled;
+    const updated = setWingDigestEnabled(wing.id, enabled);
+    audit(req, wing.id, enabled ? 'enabled' : 'disabled', 'ops_bot_config', wing.id,
+      enabled ? 'Discord events digest enabled' : 'Discord events digest disabled');
+    if (enabled) refreshWingDigest(wing.id).catch(() => {}); // post/refresh immediately
+    res.json(updated);
+  });
+  router.post('/wings/:id/digest/refresh', requireAdmin, async (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, wing.id)) return res.status(403).json({ error: 'forbidden_wing' });
+    res.json({ ok: await refreshWingDigest(wing.id) });
   });
 
   // ----- squadrons -----

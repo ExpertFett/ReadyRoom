@@ -399,6 +399,21 @@ function DiscordPublish({ wing }) {
   const [status, setStatus] = useState('');
   const [testing, setTesting] = useState(false);
   const [discordStatus, setDiscordStatus] = useState(null);
+  const [digestOn, setDigestOn] = useState(!!wing.digest_enabled);
+  const [digestMsg, setDigestMsg] = useState('');
+
+  const toggleDigest = async () => {
+    const en = !digestOn;
+    setDigestOn(en);
+    setDigestMsg(en ? 'Posting…' : '');
+    try { await api.put(`/api/wings/${wing.id}/digest`, { enabled: en }); setDigestMsg(en ? 'Posted ✓' : ''); }
+    catch { setDigestMsg('Failed'); setDigestOn(!en); }
+  };
+  const refreshDigest = async () => {
+    setDigestMsg('Refreshing…');
+    try { const r = await api.post(`/api/wings/${wing.id}/digest/refresh`); setDigestMsg(r?.ok ? 'Refreshed ✓' : 'No events channel?'); }
+    catch { setDigestMsg('Failed'); }
+  };
 
   const loadStatus = async () => {
     try { setDiscordStatus(await api.get(`/api/wings/${wing.id}/discord-status`)); }
@@ -479,6 +494,22 @@ function DiscordPublish({ wing }) {
             <button type="button" className="small" onClick={togglePause}>
               {paused ? '▶ Resume publishing' : '⏸ Pause publishing'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {wired && (
+        <div className="card" style={{ marginBottom: 10, padding: 12 }}>
+          <div className="between" style={{ alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontWeight: 600 }}>📅 Upcoming-events digest {digestOn && <span className="badge active" style={{ marginLeft: 4, fontSize: 10 }}>on</span>}</div>
+              <div className="muted small">One message in the events channel, auto-refreshed with the next 30 days of events.</div>
+            </div>
+            <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+              {digestMsg && <span className="muted small">{digestMsg}</span>}
+              {digestOn && <button type="button" className="small" onClick={refreshDigest}>Refresh now</button>}
+              <button type="button" className={`small ${digestOn ? '' : 'primary'}`} onClick={toggleDigest}>{digestOn ? 'Disable' : 'Enable'}</button>
+            </div>
           </div>
         </div>
       )}
