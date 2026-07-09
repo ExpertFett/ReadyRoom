@@ -176,6 +176,10 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_qual_tracks_unique ON qual_tracks (qual_id, code);
 `);
 ensureColumn('member_quals', 'track', 'TEXT');
+// When this pilot was assigned this qual (status 'training'). Combined with the
+// qual's completion_deadline_days, the training board shows a countdown/OVERDUE
+// badge. NULL on legacy rows / signoff-created rows = no deadline shown.
+ensureColumn('member_quals', 'assigned_at', 'INTEGER');
 
 // --- Cross-Squadron enrollment (distinct from detachment attachments) ---
 // member_attachments = "this pilot is FT/PT on a detachment, belongs to two
@@ -491,12 +495,12 @@ const selectBasicQualsStmt = db.prepare(
   'SELECT id FROM quals WHERE wing_id = ? AND is_basic = 1'
 );
 const insertAutoMemberQualStmt = db.prepare(
-  `INSERT OR IGNORE INTO member_quals (member_id, qual_id, status, updated_at)
-   VALUES (?, ?, 'training', ?)`
+  `INSERT OR IGNORE INTO member_quals (member_id, qual_id, status, assigned_at, updated_at)
+   VALUES (?, ?, 'training', ?, ?)`
 );
 function autoAssignBasicQuals(wingId, memberId, now) {
   for (const q of selectBasicQualsStmt.all(wingId)) {
-    insertAutoMemberQualStmt.run(memberId, q.id, now);
+    insertAutoMemberQualStmt.run(memberId, q.id, now, now);
   }
 }
 export function getMember(id) {
@@ -790,8 +794,8 @@ export function deleteQual(id) {
 //                  (We don't have a separate "instructor" status enum, so we
 //                  encode it in notes with the prefix '[INSTRUCTOR]'.)
 const insertBulkAssignStmt = db.prepare(
-  `INSERT INTO member_quals (member_id, qual_id, status, updated_at)
-   VALUES (?, ?, 'training', ?)
+  `INSERT INTO member_quals (member_id, qual_id, status, assigned_at, updated_at)
+   VALUES (?, ?, 'training', ?, ?)
    ON CONFLICT(member_id, qual_id) DO NOTHING`
 );
 const upsertInstructorStmt = db.prepare(
@@ -815,7 +819,7 @@ export function bulkAssignQuals(qualIds, memberIds, mode = 'assign') {
         upsertInstructorStmt.run(mid, qid, now, now);
         changed++;
       } else {
-        insertBulkAssignStmt.run(mid, qid, now);
+        insertBulkAssignStmt.run(mid, qid, now, now);   // assigned_at, updated_at
         changed++;
       }
     }

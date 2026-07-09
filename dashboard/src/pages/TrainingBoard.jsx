@@ -121,7 +121,7 @@ export default function TrainingBoard() {
                     <div>{m.callsign || '—'}</div>
                     <div className="muted small">{m.modex || '—'}</div>
                     {m.billet && <div className="muted small" style={{ color: 'var(--accent, #4c8bf5)' }}>{m.billet}</div>}
-                    <HoldStatus m={m} />
+                    <HoldStatus m={m} deadlineDays={board.qual?.completion_deadline_days} />
                   </th>
                 ))}
               </tr>
@@ -185,7 +185,16 @@ export default function TrainingBoard() {
 // Per-pilot hold-status line in the column header. Color-coded to match the
 // Currency dashboard's expectations: green=current, yellow=expiring,
 // red=expired.
-function HoldStatus({ m }) {
+function HoldStatus({ m, deadlineDays }) {
+  // Not-yet-qualified with a completion deadline → countdown / OVERDUE badge
+  // (Deckboss-style). Only when we know when they were assigned.
+  if (m.hold_status && m.hold_status !== 'qualified' && deadlineDays && m.hold_assigned_at) {
+    const daysLeft = Math.floor((m.hold_assigned_at + deadlineDays * 86400000 - Date.now()) / 86400000);
+    if (daysLeft < 0) return <div className="small" style={{ color: '#ff6464', fontWeight: 600, marginTop: 2 }}>OVERDUE</div>;
+    if (daysLeft <= 7) return <div className="small" style={{ color: '#ff9800', fontWeight: 600, marginTop: 2 }}>{daysLeft}d left</div>;
+    if (daysLeft <= 30) return <div className="small" style={{ color: '#ffcc00', marginTop: 2 }}>{daysLeft}d left</div>;
+    // >30 days out: fall through to the normal (usually "—") treatment.
+  }
   if (!m.hold_currency) {
     return <div className="muted small" style={{ marginTop: 2 }}>—</div>;
   }

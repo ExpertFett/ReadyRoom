@@ -252,7 +252,7 @@ const selectSquadronMembersOrdered = db.prepare(`
 `);
 // Per-member hold status for THIS qual (for the column-header expiration line).
 const selectMemberQualsForBoard = db.prepare(
-  'SELECT member_id, status, expires_at, awarded_at FROM member_quals WHERE qual_id = ?'
+  'SELECT member_id, status, expires_at, awarded_at, assigned_at FROM member_quals WHERE qual_id = ?'
 );
 const selectQualSignoffs = db.prepare(`
   SELECT s.member_id, s.activity_id, s.status, s.signed_at,
@@ -279,6 +279,7 @@ export function getTrainingBoard(qualId, { squadronId } = {}) {
       ...m,
       hold_status: h?.status || null,
       hold_expires_at: h?.expires_at || null,
+      hold_assigned_at: h?.assigned_at || null,
       hold_currency: h ? currencyStatus(h) : null,
     };
   });
