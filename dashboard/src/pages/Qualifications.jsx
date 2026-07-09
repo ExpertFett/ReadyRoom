@@ -29,6 +29,7 @@ const TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'my',       label: 'My Quals' },
   { key: 'currency', label: 'Currency' },
+  { key: 'advanced', label: 'Advanced Programs' },
   { key: 'board',    label: 'Training Board' },
   { key: 'assign',   label: 'Bulk Assign', adminOnly: true },
   { key: 'signoff',  label: 'Bulk Sign-off', adminOnly: true },
@@ -63,6 +64,7 @@ export default function Qualifications() {
       {tab === 'overview' && <Overview wing={activeWing} />}
       {tab === 'my'       && <MyQuals />}
       {tab === 'currency' && <CurrencyStatus />}
+      {tab === 'advanced' && <AdvancedBoard wing={activeWing} />}
       {tab === 'board'    && <BoardPicker wing={activeWing} />}
       {tab === 'assign'   && me.isAdmin && <BulkAssign wing={activeWing} />}
       {tab === 'signoff'  && me.isAdmin && <BulkSignoff wing={activeWing} />}
@@ -103,6 +105,37 @@ function Overview({ wing }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Advanced Programs — the wing-wide specialty quals (Advanced SEAD, LSO,
+// Electronic Attack, detachment quals…) surfaced as program cards, distinct
+// from the squadron readiness tiers. Mirrors Deckboss's "Advanced Board".
+function AdvancedBoard({ wing }) {
+  const [quals, setQuals] = useState(null);
+  useEffect(() => { api.get(`/api/quals?wing_id=${wing.id}`).then(setQuals); }, [wing.id]);
+  if (!quals) return <p className="muted">Loading…</p>;
+  const programs = quals.filter((q) => q.is_wing_wide);
+  if (!programs.length) return <div className="empty">No wing-wide programs yet. Mark a qualification “wing-wide” in <b>Manage</b> to feature it here.</div>;
+  return (
+    <div>
+      <p className="muted">Wing-wide specialty programs — open one for its training board.</p>
+      <div className="grid">
+        {programs.map((q) => (
+          <div key={q.id} className="card">
+            <div className="between">
+              <h3 style={{ margin: 0 }}>{q.code} <span className="muted small">{q.name}</span></h3>
+              <div className="row" style={{ gap: 4 }}>
+                {q.is_currency ? <span className="badge cap">Currency</span> : null}
+                {q.is_tier ? <span className="badge cap">Tier</span> : null}
+              </div>
+            </div>
+            {q.description && <p className="small muted" style={{ marginTop: 6, whiteSpace: 'pre-wrap' }}>{q.description}</p>}
+            <Link to={`/training/${q.id}`} className="btn small" style={{ marginTop: 8, display: 'inline-block' }}>View training board →</Link>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
