@@ -307,7 +307,10 @@ export function apiRouter() {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
     const name = str(req.body?.name, 120) || wing.name;
-    const updated = updateWing(wing.id, { name, tag: str(req.body?.tag, 32), description: str(req.body?.description, 2000) });
+    const updated = updateWing(wing.id, {
+      name, tag: str(req.body?.tag, 32), description: str(req.body?.description, 2000),
+      rank_list: req.body?.rank_list, billet_list: req.body?.billet_list,  // undefined -> preserved
+    });
     audit(req, wing.id, 'updated', 'wing', wing.id, `Wing settings updated`);
     res.json(updated);
   });

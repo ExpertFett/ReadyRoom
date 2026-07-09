@@ -131,7 +131,10 @@ function SetupWing({ onCreated }) {
 
 // Edit wing name / tag / description. Backend: PUT /api/wings/:id.
 function EditWing({ wing, onDone }) {
-  const [f, setF] = useState({ name: wing.name || '', tag: wing.tag || '', description: wing.description || '' });
+  const [f, setF] = useState({
+    name: wing.name || '', tag: wing.tag || '', description: wing.description || '',
+    rank_list: wing.rank_list || '', billet_list: wing.billet_list || '',
+  });
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const save = async (e) => {
@@ -149,6 +152,12 @@ function EditWing({ wing, onDone }) {
         <div className="field"><label>Tag</label><input value={f.tag} onChange={set('tag')} placeholder="CVW-1" /></div>
       </div>
       <div className="field"><label>Description</label><input value={f.description} onChange={set('description')} /></div>
+      <div className="form-grid">
+        <div className="field"><label>Ranks <span className="muted small">(one per line — suggested in the member editor)</span></label>
+          <textarea rows={5} value={f.rank_list} onChange={set('rank_list')} placeholder={'CDR\nLCDR\nLT\nLTJG\nENS'} /></div>
+        <div className="field"><label>Billets <span className="muted small">(one per line)</span></label>
+          <textarea rows={5} value={f.billet_list} onChange={set('billet_list')} placeholder={'CO\nXO\nOPSO\nAOPSO\nPAIO\nFLSO'} /></div>
+      </div>
       <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
     </form>
   );

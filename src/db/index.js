@@ -121,6 +121,11 @@ ensureColumn('squadrons', 'service_branch', 'TEXT');   // Navy | Marine Corps | 
 ensureColumn('squadrons', 'calendar_color', 'TEXT');   // hex, tints this squadron's events on the calendar
 ensureColumn('squadrons', 'insignia_url', 'TEXT');     // squadron patch/logo image
 ensureColumn('squadrons', 'archived', 'INTEGER NOT NULL DEFAULT 0');
+// Wing-level canonical lists (newline/comma-separated) that populate rank &
+// billet suggestion datalists on the member editor. Free-text storage is kept;
+// these are only hints, so no migration of existing values is needed.
+ensureColumn('wings', 'rank_list', 'TEXT');
+ensureColumn('wings', 'billet_list', 'TEXT');
 ensureColumn('quals', 'is_tier', 'INTEGER NOT NULL DEFAULT 0');        // counts toward readiness tier
 ensureColumn('quals', 'tier_order', 'INTEGER');                        // progression order (lower = earlier)
 ensureColumn('quals', 'tier_label', 'TEXT');                           // tier granted when achieved (e.g. CMQ -> "FMQ")
@@ -227,7 +232,7 @@ const insertWing = db.prepare(
 const selectWings = db.prepare('SELECT * FROM wings ORDER BY id ASC');
 const selectWing = db.prepare('SELECT * FROM wings WHERE id = ?');
 const updateWingStmt = db.prepare(
-  'UPDATE wings SET name = ?, tag = ?, description = ? WHERE id = ?'
+  'UPDATE wings SET name = ?, tag = ?, description = ?, rank_list = ?, billet_list = ? WHERE id = ?'
 );
 const deleteWingStmt = db.prepare('DELETE FROM wings WHERE id = ?');
 const selectWingByToken = db.prepare('SELECT * FROM wings WHERE ingest_token = ?');
@@ -268,8 +273,16 @@ export function userHasWingAccess(discordUserId, wingId) {
 export function getWing(id) {
   return selectWing.get(id) || null;
 }
-export function updateWing(id, { name, tag, description }) {
-  updateWingStmt.run(name, tag ?? null, description ?? null, id);
+export function updateWing(id, { name, tag, description, rank_list, billet_list }) {
+  const cur = getWing(id);
+  if (!cur) return null;
+  updateWingStmt.run(
+    name, tag ?? null, description ?? null,
+    // undefined -> preserve existing (partial edits stay safe)
+    rank_list === undefined ? cur.rank_list : (rank_list ? String(rank_list).slice(0, 4000) : null),
+    billet_list === undefined ? cur.billet_list : (billet_list ? String(billet_list).slice(0, 4000) : null),
+    id,
+  );
   return getWing(id);
 }
 export function deleteWing(id) {

@@ -100,9 +100,14 @@ function TrapsSection({ data }) {
 }
 
 function Profile({ m, canEdit, isAdmin, onSaved }) {
+  const { activeWing } = useMe();
   const [f, setF] = useState(m);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setF(m); }, [m]);
+  // Wing-defined suggestion lists (kept free-text; datalist only hints).
+  const splitList = (s) => (s || '').split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+  const rankOpts = splitList(activeWing?.rank_list);
+  const billetOpts = splitList(activeWing?.billet_list);
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -132,8 +137,12 @@ function Profile({ m, canEdit, isAdmin, onSaved }) {
           <div className="field"><label>Callsign</label><input value={f.callsign || ''} onChange={set('callsign')} /></div>
           <div className="field"><label>Name</label><input value={f.name || ''} onChange={set('name')} /></div>
           <div className="field"><label>Airframes</label><input value={f.airframes || ''} onChange={set('airframes')} /></div>
-          {isAdmin && <div className="field"><label>Rank</label><input value={f.rank || ''} onChange={set('rank')} /></div>}
-          {isAdmin && <div className="field"><label>Billet</label><input value={f.billet || ''} onChange={set('billet')} /></div>}
+          {isAdmin && <div className="field"><label>Rank</label>
+            <input list="rank-opts" value={f.rank || ''} onChange={set('rank')} />
+            {rankOpts.length > 0 && <datalist id="rank-opts">{rankOpts.map((r) => <option key={r} value={r} />)}</datalist>}</div>}
+          {isAdmin && <div className="field"><label>Billet</label>
+            <input list="billet-opts" value={f.billet || ''} onChange={set('billet')} />
+            {billetOpts.length > 0 && <datalist id="billet-opts">{billetOpts.map((b) => <option key={b} value={b} />)}</datalist>}</div>}
           {isAdmin && <div className="field"><label>Status</label>
             <select value={f.status} onChange={set('status')}>{STATUS.map((s) => <option key={s}>{s}</option>)}</select></div>}
           {isAdmin && <div className="field"><label>App role</label>
