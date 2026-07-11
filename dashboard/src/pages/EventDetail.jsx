@@ -13,11 +13,11 @@ const toLocalInput = (ms) => {
 };
 
 const STATUSES = [
-  { key: 'present', label: 'Present', short: 'Present', cls: 'present' },
-  { key: 'extra_credit', label: 'Extra Credit', short: 'EC', cls: 'extra' },
-  { key: 'excused', label: 'Excused', short: 'Excused', cls: 'excused' },
-  { key: 'ua', label: 'UA', short: 'UA', cls: 'ua' },
-  { key: 'absent', label: 'Absent', short: 'Absent', cls: 'absent' },
+  { key: 'present', label: 'Present', short: 'Present' },
+  { key: 'extra_credit', label: 'Extra Credit', short: 'EC' },
+  { key: 'excused', label: 'Excused', short: 'Excused' },
+  { key: 'ua', label: 'UA', short: 'UA' },
+  { key: 'absent', label: 'Absent', short: 'Absent' },
 ];
 
 const relTime = (ms) => {
@@ -243,7 +243,10 @@ export default function EventDetail() {
           {lastRec?.recorded_at && (
             <p className="muted small" style={{ marginTop: -4 }}>
               Last updated {relTime(lastRec.recorded_at)}
-              {lastRec.recorded_by_callsign ? ` by ${lastRec.recorded_by_callsign}` : (lastRec.recorded_by ? ` by ${lastRec.recorded_by}` : '')}
+              {/* fall back to raw recorded_by only for readable sentinels
+                  (e.g. 'opt-aar') — never leak a bare Discord snowflake */}
+              {lastRec.recorded_by_callsign ? ` by ${lastRec.recorded_by_callsign}`
+                : (lastRec.recorded_by && !/^\d+$/.test(lastRec.recorded_by) ? ` by ${lastRec.recorded_by}` : '')}
             </p>
           )}
 

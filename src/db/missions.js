@@ -1,4 +1,4 @@
-import db, { ensureColumn } from './index.js';
+import db, { ensureColumn, reorderRows } from './index.js';
 import { getEventByMission, getEventSignupsForShare } from './events.js';
 
 // --- schema ---------------------------------------------------------------
@@ -249,20 +249,13 @@ export function updateFlight(id, d) {
 }
 export function deleteFlight(id) { return deleteFlightStmt.run(id).changes; }
 
-// Move a flight up/down among its mission's flights. Renormalizes sort_order to
-// the array index so subsequent swaps stay well-defined (manual flights all
-// default to sort_order 0). Returns true if the move happened.
+// Move a flight up/down among its mission's flights (shared swap+renormalize
+// helper — see reorderRows in index.js).
 const setFlightOrderStmt = db.prepare('UPDATE mission_flights SET sort_order = ? WHERE id = ?');
 export function reorderFlight(flightId, direction) {
   const f = selectFlight.get(flightId);
   if (!f) return false;
-  const flights = selectFlightsByMission.all(f.mission_id);
-  const idx = flights.findIndex((x) => x.id === flightId);
-  const target = direction === 'up' ? idx - 1 : idx + 1;
-  if (idx < 0 || target < 0 || target >= flights.length) return false;
-  [flights[idx], flights[target]] = [flights[target], flights[idx]];
-  flights.forEach((fl, i) => setFlightOrderStmt.run(i, fl.id));
-  return true;
+  return reorderRows(selectFlightsByMission.all(f.mission_id), flightId, direction, setFlightOrderStmt);
 }
 
 // --- signups ---------------------------------------------------------------

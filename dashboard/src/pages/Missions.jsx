@@ -24,12 +24,18 @@ export default function Missions() {
     if (filters.aircraft) q.set('aircraft', filters.aircraft);
     if (filters.search) q.set('search', filters.search);
     if (filters.sort) q.set('sort', filters.sort);
-    const rows = await api.get(`/api/missions?${q}`);
-    setMissions(rows);
-    // Keep a stable dropdown of airframes from the unfiltered set.
-    if (!filters.aircraft) setAircraftOpts([...new Set(rows.map((m) => m.primary_aircraft).filter(Boolean))].sort());
+    setMissions(await api.get(`/api/missions?${q}`));
   };
   useEffect(() => { load(); }, [activeWing, filters]);
+
+  // Aircraft dropdown options come from the UNFILTERED mission set — deriving
+  // them from the filtered rows would hide airframes while a filter is active.
+  useEffect(() => {
+    if (!activeWing) return;
+    api.get(`/api/missions?wing_id=${activeWing.id}`)
+      .then((rows) => setAircraftOpts([...new Set(rows.map((m) => m.primary_aircraft).filter(Boolean))].sort()))
+      .catch(() => {});
+  }, [activeWing]);
 
   // Clone a mission (esp. a Library template) into a fresh standalone op —
   // copies flights + resources, no signups (backend cloneMission).

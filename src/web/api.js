@@ -377,7 +377,7 @@ export function apiRouter() {
   });
 
   // Recurring "upcoming events" digest — one auto-refreshed Discord message.
-  router.put('/wings/:id/digest', requireAdmin, (req, res) => {
+  router.put('/wings/:id/digest', requireAdmin, async (req, res) => {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
     if (!assertWingAccess(req, wing.id)) return res.status(403).json({ error: 'forbidden_wing' });
@@ -385,8 +385,9 @@ export function apiRouter() {
     const updated = setWingDigestEnabled(wing.id, enabled);
     audit(req, wing.id, enabled ? 'enabled' : 'disabled', 'ops_bot_config', wing.id,
       enabled ? 'Discord events digest enabled' : 'Discord events digest disabled');
-    if (enabled) refreshWingDigest(wing.id).catch(() => {}); // post/refresh immediately
-    res.json(updated);
+    // Await the initial post so the UI can tell the truth about whether it landed.
+    const posted = enabled ? await refreshWingDigest(wing.id).catch(() => false) : null;
+    res.json({ ...updated, digest_posted: posted });
   });
   router.post('/wings/:id/digest/refresh', requireAdmin, async (req, res) => {
     const wing = getWing(Number(req.params.id));
@@ -1532,10 +1533,11 @@ export function apiRouter() {
   });
 
   // ----- LOA -----
+  // ?since=<ms> widens the window so the calendar can show past months' LOAs.
   router.get('/wings/:id/loas', (req, res) => {
     const wing = getWing(Number(req.params.id));
     if (!wing) return res.status(404).json({ error: 'not_found' });
-    res.json(getUpcomingLOAs(wing.id));
+    res.json(getUpcomingLOAs(wing.id, ms(req.query.since)));
   });
   router.post('/members/:id/loas', (req, res) => {
     const member = getMember(Number(req.params.id));

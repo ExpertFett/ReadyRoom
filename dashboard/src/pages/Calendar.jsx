@@ -47,10 +47,14 @@ export default function Calendar() {
   useEffect(() => {
     if (activeWing) api.get(`/api/squadrons?wing_id=${activeWing.id}`).then(setSquads).catch(() => {});
   }, [activeWing]);
-  // Approved LOAs — overlay who's on leave on the month grid.
+  // Approved LOAs — overlay who's on leave on the month grid. Keyed on cursor
+  // (with since = the visible grid's start) so past months show their LOAs too.
   useEffect(() => {
-    if (activeWing) api.get(`/api/wings/${activeWing.id}/loas`).then((l) => setLoas((l || []).filter((x) => x.status === 'approved'))).catch(() => {});
-  }, [activeWing]);
+    if (!activeWing) return;
+    const start = new Date(cursor); start.setDate(1 - cursor.getDay());
+    api.get(`/api/wings/${activeWing.id}/loas?since=${start.getTime()}`)
+      .then((l) => setLoas((l || []).filter((x) => x.status === 'approved'))).catch(() => {});
+  }, [activeWing, cursor]);
 
   // Month grid: the visible 6-week window.
   useEffect(() => {
@@ -84,12 +88,19 @@ export default function Calendar() {
   const today = isoDay(new Date());
   const sqColor = {};
   for (const s of squads) if (s.calendar_color) sqColor[s.id] = s.calendar_color;
-  // Approved LOAs covering a given calendar day.
-  const dayLoas = (d) => {
-    const s = new Date(d); s.setHours(0, 0, 0, 0);
-    const ds = s.getTime(); const de = ds + 86400000;
-    return loas.filter((l) => l.start_at <= de && l.end_at >= ds);
-  };
+  // Bucket approved LOAs by iso day ONCE per render (not a filter per cell).
+  // Starting from the leave's own start DAY also fixes the old `start_at <= de`
+  // boundary bug (a leave starting exactly at next-midnight showed a day early).
+  const loasByDay = new Map();
+  for (const l of loas) {
+    const d = new Date(l.start_at); d.setHours(0, 0, 0, 0);
+    for (let i = 0; d.getTime() <= l.end_at && i < 400; i++) {   // cap ~13 months
+      const k = isoDay(d);
+      if (!loasByDay.has(k)) loasByDay.set(k, []);
+      loasByDay.get(k).push(l);
+      d.setDate(d.getDate() + 1);                                 // DST-safe step
+    }
+  }
 
   const fmtMonth = cursor.toLocaleString([], { month: 'long', year: 'numeric' });
   const move = (delta) => () => {
@@ -127,6 +138,7 @@ export default function Calendar() {
               const key = isoDay(d);
               const inMonth = d.getMonth() === monthStart.getMonth();
               const list = byDay.get(key) || [];
+              const dl = loasByDay.get(key) || [];
               return (
                 <div key={i} className={`cal-cell ${inMonth ? '' : 'out'} ${key === today ? 'today' : ''}`}>
                   <div className="cal-date">{d.getDate()}</div>
@@ -140,13 +152,10 @@ export default function Calendar() {
                       <span className="cal-evt-time">{evtTime(e.start_at)}</span> {e.title}
                     </Link>
                   ))}
-                  {(() => {
-                    const l = dayLoas(d);
-                    return l.length ? (
-                      <div className="small muted" style={{ marginTop: 2 }}
-                        title={`On leave: ${l.map((x) => x.callsign || x.modex || '?').join(', ')}`}>🌴 {l.length} on leave</div>
-                    ) : null;
-                  })()}
+                  {dl.length > 0 && (
+                    <div className="small muted" style={{ marginTop: 2 }}
+                      title={`On leave: ${dl.map((x) => x.callsign || x.modex || '?').join(', ')}`}>🌴 {dl.length} on leave</div>
+                  )}
                 </div>
               );
             })}

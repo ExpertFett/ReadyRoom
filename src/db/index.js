@@ -506,21 +506,22 @@ export function createMember(wingId, d) {
   // wing has flagged as "every new pilot gets this" (typically IQT / NATOPS).
   // Inserted as status='training' so they show up on the new pilot's My Quals
   // page with progress = 0/N.
-  try { autoAssignBasicQuals(wingId, memberId, now); } catch (err) {
+  try { autoAssignBasicQuals(wingId, memberId, now, m.squadron_id); } catch (err) {
     console.warn('[createMember] auto-assign failed:', err.message);
   }
   return getMember(memberId);
 }
 
+// Det-scoped basic quals only auto-assign to members of that squadron/det.
 const selectBasicQualsStmt = db.prepare(
-  'SELECT id FROM quals WHERE wing_id = ? AND is_basic = 1'
+  'SELECT id FROM quals WHERE wing_id = ? AND is_basic = 1 AND (squadron_id IS NULL OR squadron_id = ?)'
 );
 const insertAutoMemberQualStmt = db.prepare(
   `INSERT OR IGNORE INTO member_quals (member_id, qual_id, status, assigned_at, updated_at)
    VALUES (?, ?, 'training', ?, ?)`
 );
-function autoAssignBasicQuals(wingId, memberId, now) {
-  for (const q of selectBasicQualsStmt.all(wingId)) {
+function autoAssignBasicQuals(wingId, memberId, now, squadronId = null) {
+  for (const q of selectBasicQualsStmt.all(wingId, squadronId ?? null)) {
     insertAutoMemberQualStmt.run(memberId, q.id, now, now);
   }
 }
@@ -805,19 +806,23 @@ export function getQual(id) {
 export function deleteQual(id) {
   return deleteQualStmt.run(id).changes;
 }
-// Move a qual up/down among its wing's quals (renormalizes sort_order to the
-// display index so swaps stay well-defined). Returns true if the move happened.
+// Generic up/down reorder: swap the row with its neighbor, then renormalize
+// sort_order to the display index (lists start with ties at 0, so a plain
+// two-row swap wouldn't be well-defined). Shared by quals + mission flights.
+export function reorderRows(rows, id, direction, setOrderStmt) {
+  const idx = rows.findIndex((x) => x.id === id);
+  const target = direction === 'up' ? idx - 1 : idx + 1;
+  if (idx < 0 || target < 0 || target >= rows.length) return false;
+  [rows[idx], rows[target]] = [rows[target], rows[idx]];
+  rows.forEach((r, i) => setOrderStmt.run(i, r.id));
+  return true;
+}
+
 const setQualOrderStmt = db.prepare('UPDATE quals SET sort_order = ? WHERE id = ?');
 export function reorderQual(qualId, direction) {
   const q = selectQual.get(qualId);
   if (!q) return false;
-  const quals = selectQualsByWing.all(q.wing_id);
-  const idx = quals.findIndex((x) => x.id === qualId);
-  const target = direction === 'up' ? idx - 1 : idx + 1;
-  if (idx < 0 || target < 0 || target >= quals.length) return false;
-  [quals[idx], quals[target]] = [quals[target], quals[idx]];
-  quals.forEach((ql, i) => setQualOrderStmt.run(i, ql.id));
-  return true;
+  return reorderRows(selectQualsByWing.all(q.wing_id), qualId, direction, setQualOrderStmt);
 }
 
 // --- Phase 2: bulk qualification assignment --------------------------------
@@ -845,11 +850,29 @@ const deleteBulkAssignStmt = db.prepare(
   'DELETE FROM member_quals WHERE member_id = ? AND qual_id = ?'
 );
 
+// A member is eligible for a det-scoped qual if they're organic to that
+// squadron or cross-attached to it (FT/PT via member_attachments). Prepared
+// lazily — member_attachments is created by roster.js, which loads after us.
+let memberInSquadronStmt = null;
+function memberInSquadron(squadronId, memberId) {
+  memberInSquadronStmt ??= db.prepare(`
+    SELECT 1 FROM members m
+    LEFT JOIN member_attachments a ON a.member_id = m.id AND a.squadron_id = ?
+    WHERE m.id = ? AND (m.squadron_id = ? OR a.member_id IS NOT NULL) LIMIT 1
+  `);
+  return !!memberInSquadronStmt.get(squadronId, memberId, squadronId);
+}
+
 export function bulkAssignQuals(qualIds, memberIds, mode = 'assign') {
   const now = Date.now();
   let changed = 0;
+  let skipped = 0;
   for (const qid of qualIds) {
+    // Det-scoped quals only assign to members of that squadron/det
+    // (unassign always works — never trap someone with an unremovable row).
+    const detSquadron = mode !== 'unassign' ? (selectQual.get(qid)?.squadron_id || null) : null;
     for (const mid of memberIds) {
+      if (detSquadron && !memberInSquadron(detSquadron, mid)) { skipped++; continue; }
       if (mode === 'unassign') {
         changed += deleteBulkAssignStmt.run(mid, qid).changes;
       } else if (mode === 'instructor') {
@@ -861,7 +884,7 @@ export function bulkAssignQuals(qualIds, memberIds, mode = 'assign') {
       }
     }
   }
-  return { changed, mode, qual_count: qualIds.length, member_count: memberIds.length };
+  return { changed, skipped, mode, qual_count: qualIds.length, member_count: memberIds.length };
 }
 
 const upsertMemberQual = db.prepare(`
@@ -894,6 +917,20 @@ export function setMemberQual(memberId, qualId, { status, awarded_at, expires_at
 }
 export function getMemberQuals(memberId) {
   return selectMemberQuals.all(memberId);
+}
+// Every member×qual row for a wing in ONE query (CSV export — avoids the
+// per-member N+1 of calling getMemberQuals in a loop).
+const selectWingMemberQuals = db.prepare(`
+  SELECT mq.status, mq.awarded_at, mq.expires_at, q.code, q.name AS qual_name,
+         m.callsign, m.modex, m.squadron_id
+  FROM member_quals mq
+  JOIN quals q ON q.id = mq.qual_id
+  JOIN members m ON m.id = mq.member_id
+  WHERE m.wing_id = ?
+  ORDER BY m.callsign ASC, q.sort_order ASC, q.code ASC
+`);
+export function getWingMemberQualRows(wingId) {
+  return selectWingMemberQuals.all(wingId);
 }
 // True if the member currently holds the named qual (matched by code OR name).
 // Used to gate event flight slots that require a qualification.

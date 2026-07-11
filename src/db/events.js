@@ -354,16 +354,19 @@ export function getEventsDueForDiscord(now) {
 
 // --- list events in a range (for calendar) ------------------------------
 const SEATS_FILLED = '(SELECT COUNT(*) FROM event_signups s WHERE s.event_id = events.id) AS seats_filled';
+// squadron_tag rides along for consumers that label events (Discord digest).
 const selectEventsInRange = db.prepare(`
-  SELECT *, ${SEATS_FILLED} FROM events
-  WHERE wing_id = ? AND start_at >= ? AND start_at < ?
-  ORDER BY start_at ASC
+  SELECT events.*, sq.tag AS squadron_tag, ${SEATS_FILLED} FROM events
+  LEFT JOIN squadrons sq ON sq.id = events.squadron_id
+  WHERE events.wing_id = ? AND events.start_at >= ? AND events.start_at < ?
+  ORDER BY events.start_at ASC
 `);
 const selectEventsBySquadronInRange = db.prepare(`
-  SELECT *, ${SEATS_FILLED} FROM events
-  WHERE wing_id = ? AND start_at >= ? AND start_at < ?
-    AND (squadron_id = ? OR multi_squadron = 1)
-  ORDER BY start_at ASC
+  SELECT events.*, sq.tag AS squadron_tag, ${SEATS_FILLED} FROM events
+  LEFT JOIN squadrons sq ON sq.id = events.squadron_id
+  WHERE events.wing_id = ? AND events.start_at >= ? AND events.start_at < ?
+    AND (events.squadron_id = ? OR events.multi_squadron = 1)
+  ORDER BY events.start_at ASC
 `);
 
 export function getEventsInRange(wingId, fromMs, toMs, { squadronId } = {}) {
@@ -493,8 +496,10 @@ export function updateLOA(id, { start_at, end_at, reason }) {
   return selectLOA.get(id);
 }
 export function deleteLOA(id) { return deleteLOAStmt.run(id).changes; }
-export function getUpcomingLOAs(wingId) {
-  return selectWingLOAs.all(wingId, Date.now() - 86400000);
+// sinceMs lets the calendar pull LOAs that overlap a past month; default stays
+// "still relevant" (ended less than a day ago) for the dashboard panel.
+export function getUpcomingLOAs(wingId, sinceMs = null) {
+  return selectWingLOAs.all(wingId, Number.isFinite(sinceMs) ? sinceMs : Date.now() - 86400000);
 }
 export function getMemberLOAs(memberId) {
   return selectMemberLOAs.all(memberId, Date.now() - 86400000);

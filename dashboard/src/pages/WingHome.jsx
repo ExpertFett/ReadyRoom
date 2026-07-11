@@ -401,13 +401,18 @@ function DiscordPublish({ wing }) {
   const [discordStatus, setDiscordStatus] = useState(null);
   const [digestOn, setDigestOn] = useState(!!wing.digest_enabled);
   const [digestMsg, setDigestMsg] = useState('');
+  // Re-sync when the wing prop refreshes (parent reload / another admin toggled).
+  useEffect(() => { setDigestOn(!!wing.digest_enabled); }, [wing.digest_enabled]);
 
   const toggleDigest = async () => {
     const en = !digestOn;
     setDigestOn(en);
     setDigestMsg(en ? 'Posting…' : '');
-    try { await api.put(`/api/wings/${wing.id}/digest`, { enabled: en }); setDigestMsg(en ? 'Posted ✓' : ''); }
-    catch { setDigestMsg('Failed'); setDigestOn(!en); }
+    try {
+      // Server awaits the initial post and reports digest_posted honestly.
+      const r = await api.put(`/api/wings/${wing.id}/digest`, { enabled: en });
+      setDigestMsg(en ? (r?.digest_posted ? 'Posted ✓' : 'Enabled — post failed (no events channel?)') : '');
+    } catch { setDigestMsg('Failed'); setDigestOn(!en); }
   };
   const refreshDigest = async () => {
     setDigestMsg('Refreshing…');

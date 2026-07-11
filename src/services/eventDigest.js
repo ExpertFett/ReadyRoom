@@ -9,8 +9,9 @@ import { getBaseUrl } from '../config.js';
 
 function buildDigestPayload(wing) {
   const now = Date.now();
-  const events = getEventsInRange(wing.id, now, now + 30 * 86400000)
-    .filter((e) => e.start_at >= now - 3600000)
+  // Window opens 1h back so an in-progress event stays on the digest until
+  // it's an hour old (getEventsInRange filters on start_at >= from).
+  const events = getEventsInRange(wing.id, now - 3600000, now + 30 * 86400000)
     .sort((a, b) => a.start_at - b.start_at)
     .slice(0, 20)
     .map((e) => ({
@@ -48,7 +49,9 @@ export function startDigestScheduler({ intervalMs = 30 * 60 * 1000 } = {}) {
   if (timer) return;
   const tick = async () => {
     try {
-      for (const w of getDigestWings()) await refreshWingDigest(w.id);
+      // Concurrent per wing — one dead/slow bot URL (8s timeout) must not
+      // delay every other wing's refresh.
+      await Promise.allSettled(getDigestWings().map((w) => refreshWingDigest(w.id)));
     } catch (err) {
       console.warn('[eventDigest] tick failed:', err.message);
     }

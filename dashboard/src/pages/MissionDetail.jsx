@@ -40,10 +40,10 @@ export default function MissionDetail() {
 
   // Bulk-remove every pilot sign-up but keep the flights (e.g. resetting a
   // template mission before a new cycle).
+  const filledSeats = m.flights.reduce((n, f) => n + (f.filled || 0), 0);
   const clearAssignments = async () => {
-    const filled = m.flights.reduce((n, f) => n + (f.filled || 0), 0);
-    if (!filled) return;
-    if (!confirm(`Clear all ${filled} sign-up(s) from "${m.name}"?\nFlights stay; every signed-up pilot is removed.`)) return;
+    if (!filledSeats) return;
+    if (!confirm(`Clear all ${filledSeats} sign-up(s) from "${m.name}"?\nFlights stay; every signed-up pilot is removed.`)) return;
     await api.post(`/api/missions/${m.id}/clear-signups`);
     load();
   };
@@ -102,7 +102,7 @@ export default function MissionDetail() {
               {copied ? '✓ Link copied' : 'Copy sign-up link'}
             </button>
             <button className="small" onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Edit'}</button>
-            {m.flights.some((f) => f.filled > 0) && (
+            {filledSeats > 0 && (
               <button className="small" onClick={clearAssignments} title="Remove every pilot sign-up but keep the flights">Clear assignments</button>
             )}
             <button className="danger small" onClick={del}>Delete</button>

@@ -2,7 +2,7 @@
 // Returns plain CSV strings; the API layer sets headers + a UTF-8 BOM so Excel
 // reads them correctly.
 
-import { getMembersByWing, getSquadrons, getMemberQuals } from '../db/index.js';
+import { getMembersByWing, getSquadrons, getWingMemberQualRows } from '../db/index.js';
 import { getPilotPerformance } from '../db/events.js';
 
 const cell = (v) => {
@@ -35,14 +35,9 @@ export function attendanceCsv(wingId, fromMs, toMs) {
 
 export function qualsCsv(wingId) {
   const sqTag = new Map(getSquadrons(wingId).map((s) => [s.id, s.tag || s.name]));
-  const rows = [];
-  for (const m of getMembersByWing(wingId)) {
-    for (const q of getMemberQuals(m.id)) {
-      rows.push([
-        m.callsign, m.modex, m.squadron_id ? (sqTag.get(m.squadron_id) || '') : '',
-        q.code, q.name, q.status, day(q.awarded_at), day(q.expires_at),
-      ]);
-    }
-  }
+  const rows = getWingMemberQualRows(wingId).map((r) => [
+    r.callsign, r.modex, r.squadron_id ? (sqTag.get(r.squadron_id) || '') : '',
+    r.code, r.qual_name, r.status, day(r.awarded_at), day(r.expires_at),
+  ]);
   return toCsv(['Callsign', 'Modex', 'Squadron', 'QualCode', 'QualName', 'Status', 'Awarded', 'Expires'], rows);
 }
