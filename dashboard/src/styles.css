@@ -197,6 +197,12 @@ th {
   text-transform: uppercase; letter-spacing: 1.2px;
   background: rgba(255, 255, 255, 0.02);
 }
+/* Column heads stay visible while long tables scroll (52px = topbar height).
+   The training board manages its own sticky row/col heads. */
+table:not(.training-board) thead th {
+  position: sticky; top: 52px; z-index: 5;
+  background: #141a27;
+}
 tbody tr { transition: background .1s; }
 tbody tr:hover { background: var(--accent-dim); }
 tbody tr:last-child td { border-bottom: none; }
@@ -471,6 +477,62 @@ label {
 .stat-info .stat-value { color: var(--accent-hi); }
 .stat-warn .stat-value { color: var(--warn); }
 .stat-bad .stat-value { color: var(--danger); }
+
+/* ---------------- greenie board (ready-room wall style) ---------------- */
+.greenie {
+  margin-top: 12px;
+  background: linear-gradient(180deg, #0c1010, #090c0c);
+  border: 1px solid #1e2a26;
+  border-radius: var(--radius);
+  padding: 10px 14px 12px;
+  box-shadow: var(--shadow-1);
+}
+.greenie-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 64px 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+.greenie-row:last-of-type { border-bottom: none; }
+.greenie-head {
+  font-family: var(--font-display);
+  font-size: 10.5px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 7px;
+}
+.g-pilot {
+  font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: 0.6px;
+  color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+a.g-pilot:hover { color: var(--accent-hi); text-decoration: none; }
+.g-cells { display: flex; gap: 4px; flex-wrap: wrap; }
+.g-cell {
+  width: 21px; height: 21px; border-radius: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; color: rgba(0, 0, 0, 0.8);
+  box-shadow: inset 0 -2px 3px rgba(0, 0, 0, 0.25);
+}
+.g-cell.perfect { box-shadow: 0 0 0 2px rgba(240, 180, 41, 0.9), 0 0 8px rgba(58, 255, 138, 0.5); }
+.g-num {
+  font-family: var(--font-display); font-weight: 700; font-size: 14px;
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.greenie-legend {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--muted); font-size: 11.5px;
+}
+.greenie-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.greenie-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+/* ---------------- sidebar link LED ---------------- */
+.led { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+.led.on { background: var(--good); box-shadow: 0 0 8px rgba(63, 185, 80, 0.75); animation: led-pulse 2.4s ease-in-out infinite; }
+.led.off { background: var(--danger); box-shadow: 0 0 8px rgba(248, 81, 73, 0.75); }
+@keyframes led-pulse { 50% { opacity: 0.5; } }
 
 /* ---------------- attendance badges ---------------- */
 .badge.att-present, .badge.att-extra_credit { color: #52c96a; border-color: rgba(63, 185, 80, 0.45); background: rgba(63, 185, 80, 0.10); }

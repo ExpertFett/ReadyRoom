@@ -48,6 +48,23 @@ function Icon({ name }) {
   );
 }
 
+// Server-link LED in the sidebar foot — green while /healthz answers,
+// red when the backend is unreachable. Pings once a minute.
+function LinkLed() {
+  const [ok, setOk] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    const ping = async () => {
+      try { const r = await fetch('/healthz'); if (alive) setOk(r.ok); }
+      catch { if (alive) setOk(false); }
+    };
+    ping();
+    const t = setInterval(ping, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+  return <span className={`led ${ok ? 'on' : 'off'}`} title={ok ? 'Server link OK' : 'Server unreachable'} />;
+}
+
 // Sidebar nav: grouped "ops console" sections. Closing the drawer on click
 // only matters on mobile (the sidebar is a toggled overlay there).
 function SideNav({ onNavigate }) {
@@ -169,6 +186,7 @@ export default function App() {
           </Link>
           {activeWing && <SideNav onNavigate={() => setNavOpen(false)} />}
           <div className="sidebar-foot">
+            <LinkLed />
             <span className="who" title={me.user.username}>{me.user.username}</span>
             <button className="small" onClick={logout}>Log Out</button>
           </div>
