@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { getWingByIngestToken, getWing } from '../db/index.js';
 import { getMissionRosterForShare } from '../db/missions.js';
-import { getEventByMission, recordMissionResult, getEventSignups } from '../db/events.js';
+import { getEventByMission, recordMissionResult, getEventSignups, getEventsInRange } from '../db/events.js';
 import { editEvent as opsbotEditEvent } from '../services/opsbotBridge.js';
 import { getBaseUrl } from '../config.js';
+import { renderCalendarPng, isValidTz, monthInTz } from '../render/calendar.js';
 
 // Public, token-authenticated, CORS-enabled, READ-ONLY roster feed.
 //
@@ -29,6 +30,15 @@ function cors(req, res, next) {
   next();
 }
 
+// Coerce a query param to epoch ms: a number, an all-digits string, or anything
+// new Date() can parse (ISO). Falls back to `dflt` on anything unrecognized.
+function toMs(v, dflt) {
+  if (v == null || v === '') return dflt;
+  if (/^\d+$/.test(String(v))) return Number(v);
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? t : dflt;
+}
+
 export function shareRouter() {
   const router = Router();
   router.use(cors);
@@ -40,6 +50,83 @@ export function shareRouter() {
     const wing = getWingByIngestToken(req.params.token);
     if (!wing) return res.status(401).json({ error: 'bad_token' });
     res.json({ ok: true, wing: { id: wing.id, name: wing.name, tag: wing.tag || null } });
+  });
+
+  // GET /:token/events?from=<ms>&to=<ms> — readyroom.wing_events.v1
+  //
+  // A read-only feed of this wing's events in a time window, consumed by the
+  // Ops Bot to render a pinned "wall calendar" image in a Discord channel. Same
+  // token/CORS as the roster feed above; the token resolves to exactly one wing
+  // and getEventsInRange is already wing-scoped, so no cross-wing leak is
+  // possible. Exposes only display-safe fields. Defaults to a [-7d, +60d] window
+  // if from/to are omitted. Cancelled events are dropped.
+  router.get('/:token/events', (req, res) => {
+    const wing = getWingByIngestToken(req.params.token);
+    if (!wing) return res.status(401).json({ error: 'bad_token' });
+
+    const now = Date.now();
+    const DAY = 86_400_000;
+    const from = toMs(req.query.from, now - 7 * DAY);
+    const to = toMs(req.query.to, now + 60 * DAY);
+
+    const events = getEventsInRange(wing.id, from, to)
+      .filter((e) => (e.status || 'scheduled') !== 'cancelled')
+      .map((e) => ({
+        id: e.id,
+        title: e.title,
+        description: e.description || null,
+        kind: e.kind || 'squadron',
+        status: e.status || 'scheduled',
+        start_at: e.start_at,
+        end_at: e.end_at || null,
+        squadron_tag: e.squadron_tag || null,
+        seats_filled: e.seats_filled ?? null,
+        seats_total: e.seats_total ?? null,
+      }));
+
+    res.json({
+      schema: 'readyroom.wing_events.v1',
+      wing: { id: wing.id, name: wing.name, tag: wing.tag || null },
+      range: { from, to },
+      events,
+    });
+  });
+
+  // GET /:token/calendar.png?tz=&title=&month=  — a rendered month-grid image
+  // of this wing's events. Ready Room OWNS the render (same events that drive the
+  // web month view); the Ops Bot just fetches this PNG and pins it in Discord.
+  // `month` is an integer offset from the current month (0 = this, 1 = next).
+  router.get('/:token/calendar.png', async (req, res) => {
+    const wing = getWingByIngestToken(req.params.token);
+    if (!wing) return res.status(401).json({ error: 'bad_token' });
+    try {
+      const tz = isValidTz(req.query.tz) ? req.query.tz : 'America/Denver';
+      const title = typeof req.query.title === 'string' && req.query.title.trim()
+        ? req.query.title.slice(0, 80) : (wing.name || null);
+      const offset = Number.parseInt(req.query.month, 10) || 0;
+      const { year, month } = monthInTz(Date.now(), tz, offset);
+
+      const DAY = 86_400_000;
+      const from = Date.UTC(year, month, 1) - 8 * DAY;
+      const to = Date.UTC(year, month + 1, 1) + 8 * DAY;
+      const events = getEventsInRange(wing.id, from, to)
+        .filter((e) => (e.status || 'scheduled') !== 'cancelled')
+        .map((e) => ({
+          title: e.title || 'Event',
+          start: e.start_at,
+          kind: e.kind || 'squadron',
+          filled: e.seats_filled ?? null,
+          total: e.seats_total || null,
+        }));
+
+      const png = await renderCalendarPng({ year, month, tz, title, events });
+      res.set('Content-Type', 'image/png');
+      res.set('Cache-Control', 'no-store');
+      res.send(png);
+    } catch (e) {
+      console.error('[share] calendar.png render failed:', e.message);
+      res.status(500).json({ error: 'render_failed' });
+    }
   });
 
   // GET /:token/missions/:missionId/roster — the readyroom.mission_roster.v1
