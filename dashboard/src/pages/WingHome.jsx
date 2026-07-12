@@ -551,16 +551,18 @@ function DiscordPublish({ wing }) {
       )}
 
       <form className="card" onSubmit={save}>
-        <p className="muted small" style={{ marginTop: 0 }}>
-          When you schedule an event here, Ops Bot posts a Discord embed to your squadron's events channel.
-          Get both values from the <b>Ops Bot dashboard → DCS Server → ReadyRoom integration → Inbound</b> tab.
-          (It's filed under <i>"Inbound"</i> there because it's the token Ops Bot accepts <i>from</i> Ready Room —
-          same token, the two apps just name their ends differently.) <b>Save</b>, then <b>Test connection</b> to confirm it's wired.
-        </p>
+        <div className="muted small" style={{ marginTop: 0 }}>
+          <p style={{ marginTop: 0 }}>When you schedule an event here, Ops Bot posts a Discord embed to your squadron's events channel. To wire it up:</p>
+          <ol className="walkthrough" style={{ marginBottom: 10 }}>
+            <li>Open the <b>Ops Bot dashboard</b> → <b>DCS Server</b> → <b>ReadyRoom integration</b>.</li>
+            <li>Under <b>② Events&nbsp;←&nbsp;ReadyRoom</b>, click <b>Reveal token</b> → <b>Copy token</b>, and pick your <b>Events channel</b>.</li>
+            <li>Paste it into <b>Outbound token</b> below (the URL is already prefilled for the official Ops Bot), then <b>Save</b> and <b>Test connection</b>.</li>
+          </ol>
+        </div>
         <div className="field"><label>Ops Bot URL <span className="muted small">(prefilled to the official deploy — change only if self-hosting)</span></label>
           <input value={f.ops_bot_url} onChange={(e) => setF({ ...f, ops_bot_url: e.target.value })}
                  placeholder="https://your-opsbot.up.railway.app" /></div>
-        <div className="field"><label>Outbound token <span className="muted small">(get from Ops Bot → Inbound → Reveal · treat like a password)</span></label>
+        <div className="field"><label>Outbound token <span className="muted small">(Ops Bot → ② Events&nbsp;←&nbsp;ReadyRoom → Reveal token · treat like a password)</span></label>
           <input type="password" value={f.ops_bot_token} onChange={(e) => setF({ ...f, ops_bot_token: e.target.value })}
                  placeholder="(paste from Ops Bot)" /></div>
         <div className="row" style={{ alignItems: 'center', gap: 8 }}>
