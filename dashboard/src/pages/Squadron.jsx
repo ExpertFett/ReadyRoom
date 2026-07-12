@@ -42,14 +42,17 @@ export default function Squadron() {
             {isDet && <span className="badge commander" style={{ marginLeft: 8 }}>DETACHMENT</span>}</h1>
           {sqn.aircraft && <p className="muted">{sqn.aircraft}{sqn.description ? ` · ${sqn.description}` : ''}</p>}
         </div>
-        {me.isAdmin && (
-          <div className="row">
-            <button className="small" onClick={() => setPanel(panel === 'edit' ? null : 'edit')}>{panel === 'edit' ? 'Cancel' : 'Edit'}</button>
-            <button className="small" onClick={() => setPanel(panel === 'add' ? null : 'add')}>+ Member</button>
-            {isDet && <button className="small" onClick={() => setPanel(panel === 'attach' ? null : 'attach')}>Attach pilot</button>}
-            <button className="small" onClick={() => setPanel(panel === 'import' ? null : 'import')}>Import CSV</button>
-          </div>
-        )}
+        <div className="row">
+          <button className="small" onClick={() => window.print()} title="Print this roster as a kneeboard sheet">🖨 Print</button>
+          {me.isAdmin && (
+            <>
+              <button className="small" onClick={() => setPanel(panel === 'edit' ? null : 'edit')}>{panel === 'edit' ? 'Cancel' : 'Edit'}</button>
+              <button className="small" onClick={() => setPanel(panel === 'add' ? null : 'add')}>+ Member</button>
+              {isDet && <button className="small" onClick={() => setPanel(panel === 'attach' ? null : 'attach')}>Attach pilot</button>}
+              <button className="small" onClick={() => setPanel(panel === 'import' ? null : 'import')}>Import CSV</button>
+            </>
+          )}
+        </div>
       </div>
 
       {panel === 'edit' && <EditSquadron sqn={sqn} onDone={reload} />}

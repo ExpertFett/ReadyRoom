@@ -82,28 +82,51 @@ function CreateCarrier({ wing, onDone }) {
   );
 }
 
+// Ready-room wall colors — one source for the board cells and the trap-log pills.
+export const GRADE_COLOR = {
+  '_OK_': '#3aff8a', 'OK': '#4cd964', '(OK)': '#ffd60a',
+  '--': '#a07a3a', 'B': '#ff9500', 'TWO': '#ff9500',
+  'C': '#ff453a', 'WO': '#ff453a', 'WOFD': '#7a7a7a',
+};
+// Letter shown inside non-OK cells (OK-family passes speak through color alone).
+const CELL_LETTER = { B: 'B', C: 'C', WO: 'W', WOFD: 'F', TWO: 'T', '--': '–' };
+
 function GreenieBoard({ board }) {
   if (!board) return null;
   return (
     <section>
-      <h2>Greenie board <span className="muted small">(last 10 traps · ordered by avg score)</span></h2>
+      <h2>Greenie board <span className="muted small">(last 10 traps · newest →)</span></h2>
       {!board.board.length ? <div className="empty">No traps logged yet.</div> : (
-        <div className="card" style={{ padding: 0 }}>
-          <table>
-            <thead><tr><th>Pilot</th><th>Avg</th><th>%-trap</th><th>Last 10 (newest →)</th></tr></thead>
-            <tbody>
-              {board.board.map((row) => (
-                <tr key={row.member_id}>
-                  <td><Link to={`/members/${row.member_id}`} className="callsign">{row.callsign || row.name}</Link></td>
-                  <td><b>{row.avg_score ?? '—'}</b></td>
-                  <td>{row.boarding_rate != null ? `${Math.round(row.boarding_rate * 100)}%` : '—'}</td>
-                  <td className="small mono">
-                    {row.grades.map((g, i) => <GradePill key={i} g={g} />)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="greenie">
+          <div className="greenie-row greenie-head">
+            <span className="g-pilot">Pilot</span>
+            <span className="g-cells">Passes</span>
+            <span className="g-num">Avg</span>
+            <span className="g-num">Board</span>
+          </div>
+          {board.board.map((row) => (
+            <div key={row.member_id} className="greenie-row">
+              <Link to={`/members/${row.member_id}`} className="g-pilot">{row.callsign || row.name}</Link>
+              <span className="g-cells">
+                {row.grades.map((g, i) => (
+                  <span key={i} className={`g-cell${g === '_OK_' ? ' perfect' : ''}`}
+                    style={{ background: GRADE_COLOR[g] || '#4a5568' }} title={g}>
+                    {CELL_LETTER[g] || ''}
+                  </span>
+                ))}
+              </span>
+              <span className="g-num">{row.avg_score ?? '—'}</span>
+              <span className="g-num">{row.boarding_rate != null ? `${Math.round(row.boarding_rate * 100)}%` : '—'}</span>
+            </div>
+          ))}
+          <div className="greenie-legend">
+            <span><i style={{ background: GRADE_COLOR['_OK_'] }} /> _OK_</span>
+            <span><i style={{ background: GRADE_COLOR.OK }} /> OK</span>
+            <span><i style={{ background: GRADE_COLOR['(OK)'] }} /> Fair</span>
+            <span><i style={{ background: GRADE_COLOR['--'] }} /> No grade</span>
+            <span><i style={{ background: GRADE_COLOR.B }} /> Bolter</span>
+            <span><i style={{ background: GRADE_COLOR.C }} /> Cut / WO</span>
+          </div>
         </div>
       )}
     </section>
@@ -111,11 +134,7 @@ function GreenieBoard({ board }) {
 }
 
 export function GradePill({ g }) {
-  const color = ({
-    '_OK_': '#3aff8a', 'OK': '#4cd964', '(OK)': '#ffd60a',
-    '--': '#a07a3a', 'B': '#ff9500', 'TWO': '#ff9500',
-    'C': '#ff453a', 'WO': '#ff453a', 'WOFD': '#7a7a7a',
-  })[g] || '#888';
+  const color = GRADE_COLOR[g] || '#888';
   return (
     <span style={{
       display: 'inline-block', padding: '2px 6px', marginRight: 4,

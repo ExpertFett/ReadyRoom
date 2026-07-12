@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
+import { useToast } from '../components/Toast.jsx';
 import { Markdown } from '../components/Markdown.jsx';
 
 const TYPES = ['standalone', 'campaign', 'library'];
@@ -16,6 +17,7 @@ const toLocalInput = (ms) => {
 export default function MissionDetail() {
   const { id } = useParams();
   const { me } = useMe();
+  const toast = useToast();
   const navigate = useNavigate();
   const [m, setM] = useState(null);
   const [squadrons, setSquadrons] = useState([]);
@@ -56,7 +58,7 @@ export default function MissionDetail() {
       const event = await api.post(`/api/missions/${m.id}/publish-event`);
       navigate(`/events/${event.id}`);
     } catch {
-      alert('Could not publish this mission as an event.');
+      toast.error('Could not publish this mission as an event.');
     }
   };
 
@@ -74,7 +76,7 @@ export default function MissionDetail() {
         prompt('Copy this sign-up link (paste into the DCS:OPT planner):', url);
       }
     } catch {
-      alert('Could not generate the sign-up link.');
+      toast.error('Could not generate the sign-up link.');
     }
   };
 
@@ -164,6 +166,7 @@ function EditMission({ m, onDone }) {
 function Flights({ m, squadrons, me, reload }) {
   const [adding, setAdding] = useState(false);
   const [templates, setTemplates] = useState([]);
+  const toast = useToast();
   const fileRef = useRef(null);
 
   const loadTemplates = () => api.get(`/api/wings/${m.wing_id}/flight-templates`).then(setTemplates).catch(() => {});
@@ -192,11 +195,11 @@ function Flights({ m, squadrons, me, reload }) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(`Import failed: ${err.error || res.statusText}`);
+      toast.error(`Import failed: ${err.error || res.statusText}`);
       return;
     }
     const data = await res.json();
-    alert(`Imported ${data.flights_created} flight(s) from ${data.parsed_slots} client slot(s).`);
+    toast.success(`Imported ${data.flights_created} flight(s) from ${data.parsed_slots} client slot(s).`);
     reload();
   };
 
@@ -244,13 +247,14 @@ function Flights({ m, squadrons, me, reload }) {
 
 function FlightCard({ flight, squadrons, me, reload, idx = 0, count = 1 }) {
   const [editing, setEditing] = useState(false);
+  const toast = useToast();
   const full = flight.filled >= flight.slots;
   const mine = flight.signups.find((s) => me.member && s.member_id === me.member.id);
   const move = async (direction) => { await api.post(`/api/flights/${flight.id}/reorder`, { direction }); reload(); };
 
   const signMe = async () => {
-    try { await api.post(`/api/flights/${flight.id}/signup`); reload(); }
-    catch (e) { alert(e.message === 'no_member' ? "Your Discord isn't linked to a roster member yet." : e.message === 'flight_full' ? 'Flight is full.' : e.message === 'already_signed' ? "You're already signed up in another flight for this mission." : 'Could not sign up.'); }
+    try { await api.post(`/api/flights/${flight.id}/signup`); reload(); toast.success(`Signed up — ${flight.callsign || 'flight'}`); }
+    catch (e) { toast.error(e.message === 'no_member' ? "Your Discord isn't linked to a roster member yet." : e.message === 'flight_full' ? 'Flight is full.' : e.message === 'already_signed' ? "You're already signed up in another flight for this mission." : 'Could not sign up.'); }
   };
   const removeSignup = async (sid) => { await api.del(`/api/signups/${sid}`); reload(); };
   const delFlight = async () => { if (confirm('Delete this flight?')) { await api.del(`/api/flights/${flight.id}`); reload(); } };

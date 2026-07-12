@@ -235,7 +235,8 @@ function Squadrons({ wing, isAdmin, reload }) {
       ) : (
         <div className="grid">
           {wing.squadrons.map((s) => (
-            <Link key={s.id} to={`/squadrons/${s.id}`} className="card sqn-card">
+            <Link key={s.id} to={`/squadrons/${s.id}`} className="card sqn-card"
+              style={s.calendar_color ? { borderLeft: `3px solid ${s.calendar_color}` } : undefined}>
               <div className="tag">{s.tag || s.name}</div>
               <div>{s.tag ? s.name : ''}</div>
               {s.aircraft && <div className="small muted">{s.aircraft}</div>}
