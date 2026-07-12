@@ -410,6 +410,7 @@ export function apiRouter() {
       tz: typeof req.body?.tz === 'string' ? req.body.tz : undefined,
       title: str(req.body?.title, 80) || wing.tag || wing.name,   // admin override, else wing name
       month: Number(req.body?.month) || 0,
+      event_list: !!req.body?.event_list,   // append a local-time event list under the image
     });
     if (r.ok) {
       audit(req, wing.id, 'published', 'calendar', wing.id, 'Posted month calendar to Discord');

@@ -275,6 +275,7 @@ function PostModal({ wing, events, onClose, onPosted }) {
   const [calTitle, setCalTitle] = useState(wing.tag || wing.name || '');
   const [calTz, setCalTz] = useState(localTz);
   const [calMonth, setCalMonth] = useState(0);
+  const [calEventList, setCalEventList] = useState(true);   // include a local-time event list
   const tzList = TZ_OPTIONS.includes(localTz) ? TZ_OPTIONS : [localTz, ...TZ_OPTIONS];
 
   const onErr = (err, fallback) => {
@@ -313,7 +314,7 @@ function PostModal({ wing, events, onClose, onPosted }) {
   const postCalendar = async () => {
     setBusy('calendar');
     try {
-      const r = await api.post(`/api/wings/${wing.id}/post-calendar`, { tz: calTz, title: calTitle, month: calMonth });
+      const r = await api.post(`/api/wings/${wing.id}/post-calendar`, { tz: calTz, title: calTitle, month: calMonth, event_list: calEventList });
       toast.success(r?.edited ? 'Refreshed the calendar in Discord ✓' : 'Posted the month calendar to Discord ✓');
       onPosted?.(); onClose();
     } catch (err) {
@@ -360,6 +361,10 @@ function PostModal({ wing, events, onClose, onPosted }) {
                   {busy === 'calendar' ? 'Posting…' : 'Post calendar'}
                 </button>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+                <input type="checkbox" style={{ width: 'auto' }} checked={calEventList} onChange={(e) => setCalEventList(e.target.checked)} />
+                <span>Include an event list under the image <span className="muted">— shows each viewer their own local time (Discord timestamps)</span></span>
+              </label>
             </div>
 
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '16px 0' }} />
