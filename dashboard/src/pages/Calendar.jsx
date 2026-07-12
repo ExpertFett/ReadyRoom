@@ -50,6 +50,7 @@ export default function Calendar() {
   const [squads, setSquads] = useState([]);
   const [loas, setLoas] = useState([]);
   const [reloadTick, setReloadTick] = useState(0);
+  const [posting, setPosting] = useState(false);
   const reload = () => setReloadTick((n) => n + 1);
 
   // Squadron calendar colors — tint each event chip by its host squadron.
@@ -124,11 +125,13 @@ export default function Calendar() {
         <div className="row" style={{ gap: 8 }}>
           <button className={`small ${view === 'list' ? 'primary' : ''}`} onClick={() => setView('list')}>List</button>
           <button className={`small ${view === 'month' ? 'primary' : ''}`} onClick={() => setView('month')}>Month</button>
+          {me.isAdmin && <button className="small" onClick={() => setPosting(true)} title="Post an event (or the schedule) to your Discord">📣 Post to Discord</button>}
           {me.isAdmin && <button className="primary" onClick={() => setCreating((v) => !v)}>{creating ? 'Cancel' : '+ Create event'}</button>}
         </div>
       </div>
 
       {creating && <CreateEvent wing={activeWing} onDone={() => setCreating(false)} />}
+      {posting && <PostModal wing={activeWing} events={upcoming} onClose={() => setPosting(false)} onPosted={reload} />}
 
       {view === 'list' ? (
         <AgendaList events={upcoming} isAdmin={me.isAdmin} onPosted={reload} />
@@ -247,6 +250,100 @@ function PostToDiscord({ event, onPosted }) {
       title={posted ? 'Repost this event to Discord' : 'Post this event to Discord'}>
       {busy ? '…' : posted ? '↻ Repost' : '📣 Post'}
     </button>
+  );
+}
+
+// The top-level "Post to Discord" popup: pick an upcoming event to post, or
+// post the whole upcoming-events digest. Surfaces a clear "set it up first"
+// prompt if the wing's Discord publishing isn't wired yet.
+function PostModal({ wing, events, onClose, onPosted }) {
+  const toast = useToast();
+  const [eventId, setEventId] = useState(events[0]?.id ? String(events[0].id) : '');
+  const [busy, setBusy] = useState('');           // '' | 'event' | 'digest'
+  const [notConfigured, setNotConfigured] = useState(false);
+
+  const onErr = (err, fallback) => {
+    if (err.data?.error === 'discord_not_configured') { setNotConfigured(true); return; }
+    toast.error(err.data?.error === 'publish_failed'
+      ? "Ops Bot couldn't post it — check the wing's Discord settings."
+      : fallback);
+  };
+
+  const postEvent = async () => {
+    if (!eventId) return;
+    setBusy('event');
+    try {
+      await api.post(`/api/events/${eventId}/republish`, {});
+      const ev = events.find((e) => String(e.id) === String(eventId));
+      toast.success(`Posted “${ev?.title || 'event'}” to Discord ✓`);
+      onPosted?.(); onClose();
+    } catch (err) { onErr(err, "Couldn't post to Discord."); }
+    finally { setBusy(''); }
+  };
+
+  const postDigest = async () => {
+    setBusy('digest');
+    try {
+      // Enabling awaits the initial post and reports whether it landed. A false
+      // here means it's enabled (and will retry on the 30-min tick) but the
+      // first post didn't go through — a Discord-settings problem, not "unwired".
+      const r = await api.put(`/api/wings/${wing.id}/digest`, { enabled: true });
+      if (r?.digest_posted) { toast.success('Posted the upcoming-events digest ✓'); onPosted?.(); onClose(); }
+      else toast.error('Digest enabled, but the first post didn’t go through — check Wing → Discord publish.', 6000);
+    } catch (err) { onErr(err, "Couldn't post the digest."); }
+    finally { setBusy(''); }
+  };
+
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="between"><h3 style={{ margin: 0 }}>Post to Discord</h3>
+          <button className="small" onClick={onClose} aria-label="Close">✕</button></div>
+
+        {notConfigured ? (
+          <div style={{ marginTop: 14 }}>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Discord publishing isn't set up for this wing yet — add the Ops Bot URL + token first.
+            </p>
+            <Link className="btn small primary" to="/wing" onClick={onClose}>Set it up on the Wing page →</Link>
+          </div>
+        ) : (
+          <>
+            <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
+              <label>Post an event</label>
+              {!events.length ? (
+                <p className="muted small" style={{ margin: '4px 0 0' }}>No upcoming events to post.</p>
+              ) : (
+                <div className="row" style={{ gap: 8, alignItems: 'stretch' }}>
+                  <select value={eventId} onChange={(e) => setEventId(e.target.value)} style={{ flex: 1 }}>
+                    {events.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.title} — {evtDateShort(e.start_at)}{e.discord_message_id ? '  (already posted)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="primary" disabled={!!busy || !eventId} onClick={postEvent}>
+                    {busy === 'event' ? 'Posting…' : 'Post event'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '16px 0' }} />
+
+            <div className="between" style={{ gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600 }}>📅 Upcoming-events digest</div>
+                <div className="muted small">One message with the next 30 days, kept auto-updated in your events channel.</div>
+              </div>
+              <button className="small" disabled={!!busy} onClick={postDigest} style={{ flex: '0 0 auto' }}>
+                {busy === 'digest' ? 'Posting…' : 'Post digest'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
