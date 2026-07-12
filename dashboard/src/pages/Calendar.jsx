@@ -253,14 +253,29 @@ function PostToDiscord({ event, onPosted }) {
   );
 }
 
-// The top-level "Post to Discord" popup: pick an upcoming event to post, or
-// post the whole upcoming-events digest. Surfaces a clear "set it up first"
-// prompt if the wing's Discord publishing isn't wired yet.
+// Common IANA zones for the calendar timezone picker; the viewer's own zone is
+// injected at the top if it isn't already listed, so it's the default.
+const TZ_OPTIONS = [
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix',
+  'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'America/Halifax',
+  'America/Sao_Paulo', 'UTC', 'Europe/London', 'Europe/Paris', 'Europe/Berlin',
+  'Europe/Helsinki', 'Europe/Moscow', 'Asia/Dubai', 'Asia/Tokyo', 'Australia/Sydney',
+];
+
+// The top-level "Post to Discord" popup: post the month calendar image, an
+// individual event, or the upcoming-events digest. Surfaces a clear "set it up
+// first" prompt if the wing's Discord publishing isn't wired yet.
 function PostModal({ wing, events, onClose, onPosted }) {
   const toast = useToast();
+  const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const [eventId, setEventId] = useState(events[0]?.id ? String(events[0].id) : '');
-  const [busy, setBusy] = useState('');           // '' | 'event' | 'digest'
+  const [busy, setBusy] = useState('');           // '' | 'event' | 'digest' | 'calendar'
   const [notConfigured, setNotConfigured] = useState(false);
+  // Calendar options (mirror the /calendar slash command): title + timezone + month.
+  const [calTitle, setCalTitle] = useState(wing.tag || wing.name || '');
+  const [calTz, setCalTz] = useState(localTz);
+  const [calMonth, setCalMonth] = useState(0);
+  const tzList = TZ_OPTIONS.includes(localTz) ? TZ_OPTIONS : [localTz, ...TZ_OPTIONS];
 
   const onErr = (err, fallback) => {
     if (err.data?.error === 'discord_not_configured') { setNotConfigured(true); return; }
@@ -298,8 +313,7 @@ function PostModal({ wing, events, onClose, onPosted }) {
   const postCalendar = async () => {
     setBusy('calendar');
     try {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // render in the admin's local zone
-      const r = await api.post(`/api/wings/${wing.id}/post-calendar`, { tz });
+      const r = await api.post(`/api/wings/${wing.id}/post-calendar`, { tz: calTz, title: calTitle, month: calMonth });
       toast.success(r?.edited ? 'Refreshed the calendar in Discord ✓' : 'Posted the month calendar to Discord ✓');
       onPosted?.(); onClose();
     } catch (err) {
@@ -324,14 +338,28 @@ function PostModal({ wing, events, onClose, onPosted }) {
           </div>
         ) : (
           <>
-            <div className="between" style={{ gap: 12, marginTop: 14 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600 }}>🗓️ Month calendar (image)</div>
-                <div className="muted small">Posts the full month grid as a pinned image, kept auto-updated in your events channel.</div>
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontWeight: 600 }}>🗓️ Month calendar (image)</div>
+              <div className="muted small" style={{ marginBottom: 8 }}>Posts the full month grid as a pinned image, kept auto-updated in your events channel.</div>
+              <div className="form-grid" style={{ gap: 8 }}>
+                <div className="field" style={{ margin: 0 }}><label>Title</label>
+                  <input value={calTitle} onChange={(e) => setCalTitle(e.target.value)} placeholder={wing.name} /></div>
+                <div className="field" style={{ margin: 0 }}><label>Timezone</label>
+                  <select value={calTz} onChange={(e) => setCalTz(e.target.value)}>
+                    {tzList.map((z) => <option key={z} value={z}>{z}</option>)}
+                  </select></div>
               </div>
-              <button className="primary small" disabled={!!busy} onClick={postCalendar} style={{ flex: '0 0 auto' }}>
-                {busy === 'calendar' ? 'Posting…' : 'Post calendar'}
-              </button>
+              <div className="row" style={{ gap: 8, alignItems: 'flex-end', marginTop: 8 }}>
+                <div className="field" style={{ margin: 0, flex: 1 }}><label>Month</label>
+                  <select value={calMonth} onChange={(e) => setCalMonth(Number(e.target.value))}>
+                    <option value={0}>This month</option>
+                    <option value={1}>Next month</option>
+                    <option value={-1}>Previous month</option>
+                  </select></div>
+                <button className="primary" disabled={!!busy} onClick={postCalendar} style={{ flex: '0 0 auto' }}>
+                  {busy === 'calendar' ? 'Posting…' : 'Post calendar'}
+                </button>
+              </div>
             </div>
 
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '16px 0' }} />

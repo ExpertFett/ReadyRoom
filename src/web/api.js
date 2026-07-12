@@ -408,7 +408,7 @@ export function apiRouter() {
     const r = await opsbotPublishCalendar(wing, {
       source_url,
       tz: typeof req.body?.tz === 'string' ? req.body.tz : undefined,
-      title: wing.tag || wing.name,
+      title: str(req.body?.title, 80) || wing.tag || wing.name,   // admin override, else wing name
       month: Number(req.body?.month) || 0,
     });
     if (r.ok) {
