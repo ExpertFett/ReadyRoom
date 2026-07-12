@@ -48,7 +48,7 @@ import {
   setEventSignup, removeEventSignup, removeAllEventSignupsForUser, getEventSignups, countEventRoleSignups,
   claimEventSlot, getEventByMission, getMemberEventSignups,
 } from '../db/events.js';
-import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent } from '../services/opsbotBridge.js';
+import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent, publishCalendar as opsbotPublishCalendar } from '../services/opsbotBridge.js';
 import { publishEventNow } from '../services/eventPublish.js';
 import { refreshWingDigest } from '../services/eventDigest.js';
 import { rosterCsv, attendanceCsv, qualsCsv } from '../services/csvExport.js';
@@ -394,6 +394,30 @@ export function apiRouter() {
     if (!wing) return res.status(404).json({ error: 'not_found' });
     if (!assertWingAccess(req, wing.id)) return res.status(403).json({ error: 'forbidden_wing' });
     res.json({ ok: await refreshWingDigest(wing.id) });
+  });
+  // Post the month-grid calendar IMAGE to Discord (via the Ops Bot), pinned in
+  // the events channel — no /calendar slash command needed. We hand the bot our
+  // /share/<ingest-token> source so it can render this wing's calendar. tz comes
+  // from the caller (their local zone) so days land correctly.
+  router.post('/wings/:id/post-calendar', requireAdmin, async (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, wing.id)) return res.status(403).json({ error: 'forbidden_wing' });
+    if (!wing.ops_bot_url || !wing.ops_bot_token) return res.status(400).json({ error: 'discord_not_configured' });
+    const source_url = `${getBaseUrl()}/share/${getWingIngestToken(wing.id)}`;
+    const r = await opsbotPublishCalendar(wing, {
+      source_url,
+      tz: typeof req.body?.tz === 'string' ? req.body.tz : undefined,
+      title: wing.tag || wing.name,
+      month: Number(req.body?.month) || 0,
+    });
+    if (r.ok) {
+      audit(req, wing.id, 'published', 'calendar', wing.id, 'Posted month calendar to Discord');
+      return res.json({ ok: true, edited: r.edited });
+    }
+    // Map bot-side reasons to something the UI can explain.
+    const code = r.error === 'no_events_channel_configured' || r.error === 'no_channel' ? 'no_channel' : r.error;
+    res.status(502).json({ error: code || 'post_failed' });
   });
 
   // ----- squadrons -----

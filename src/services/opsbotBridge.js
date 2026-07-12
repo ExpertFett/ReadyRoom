@@ -98,6 +98,20 @@ export async function editDigest(wing, messageId, payload) {
 }
 
 /**
+ * Ask the Ops Bot to post (or refresh) the wing's month-grid calendar IMAGE as
+ * a pinned message. We hand it our /share/<token> source so it can render even
+ * if the sortie ingest URL was never wired. Returns { ok, error? }.
+ * @returns {Promise<{ok:boolean, edited?:boolean, error?:string}>}
+ */
+export async function publishCalendar(wing, payload) {
+  const res = await opsbotFetch(wing, 'POST', '/calendar', payload);
+  if (!res) return { ok: false, error: 'unreachable' };
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: data.error || `http_${res.status}` };
+  return { ok: true, edited: !!data.edited };
+}
+
+/**
  * Delete a published embed. Treated as success even if the message is already gone.
  * @returns {Promise<boolean>}
  */

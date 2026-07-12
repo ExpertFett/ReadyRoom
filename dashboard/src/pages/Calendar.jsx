@@ -294,6 +294,21 @@ function PostModal({ wing, events, onClose, onPosted }) {
     finally { setBusy(''); }
   };
 
+  // The month-grid calendar IMAGE, pinned + auto-updated in the events channel.
+  const postCalendar = async () => {
+    setBusy('calendar');
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; // render in the admin's local zone
+      const r = await api.post(`/api/wings/${wing.id}/post-calendar`, { tz });
+      toast.success(r?.edited ? 'Refreshed the calendar in Discord ✓' : 'Posted the month calendar to Discord ✓');
+      onPosted?.(); onClose();
+    } catch (err) {
+      if (err.data?.error === 'no_channel') {
+        toast.error('No Discord channel set — pick your events channel on the Ops Bot (② Events ← ReadyRoom).', 6500);
+      } else { onErr(err, "Couldn't post the calendar."); }
+    } finally { setBusy(''); }
+  };
+
   return (
     <div className="modal-scrim" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -309,7 +324,19 @@ function PostModal({ wing, events, onClose, onPosted }) {
           </div>
         ) : (
           <>
-            <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
+            <div className="between" style={{ gap: 12, marginTop: 14 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600 }}>🗓️ Month calendar (image)</div>
+                <div className="muted small">Posts the full month grid as a pinned image, kept auto-updated in your events channel.</div>
+              </div>
+              <button className="primary small" disabled={!!busy} onClick={postCalendar} style={{ flex: '0 0 auto' }}>
+                {busy === 'calendar' ? 'Posting…' : 'Post calendar'}
+              </button>
+            </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '16px 0' }} />
+
+            <div className="field" style={{ marginTop: 0, marginBottom: 0 }}>
               <label>Post an event</label>
               {!events.length ? (
                 <p className="muted small" style={{ margin: '4px 0 0' }}>No upcoming events to post.</p>
