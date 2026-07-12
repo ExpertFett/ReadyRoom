@@ -131,6 +131,9 @@ ensureColumn('wings', 'billet_list', 'TEXT');
 // scheduler when enabled. digest_message_id is the message we edit in place.
 ensureColumn('wings', 'digest_enabled', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('wings', 'digest_message_id', 'TEXT');
+// Shareable roster-claim token: pilots open /claim/<token>, log in, and claim
+// their own (unlinked) roster member — self-serve identity linking.
+ensureColumn('wings', 'claim_token', 'TEXT');
 ensureColumn('quals', 'is_tier', 'INTEGER NOT NULL DEFAULT 0');        // counts toward readiness tier
 ensureColumn('quals', 'tier_order', 'INTEGER');                        // progression order (lower = earlier)
 ensureColumn('quals', 'tier_label', 'TEXT');                           // tier granted when achieved (e.g. CMQ -> "FMQ")
@@ -271,6 +274,8 @@ const updateWingStmt = db.prepare(
 const deleteWingStmt = db.prepare('DELETE FROM wings WHERE id = ?');
 const selectWingByToken = db.prepare('SELECT * FROM wings WHERE ingest_token = ?');
 const setWingTokenStmt = db.prepare('UPDATE wings SET ingest_token = ? WHERE id = ?');
+const selectWingByClaimToken = db.prepare('SELECT * FROM wings WHERE claim_token = ?');
+const setWingClaimTokenStmt = db.prepare('UPDATE wings SET claim_token = ? WHERE id = ?');
 
 export function createWing({ name, tag, description, created_by = null }) {
   const info = insertWing.run(name, tag ?? null, description ?? null, Date.now(), created_by ?? null);
@@ -354,6 +359,50 @@ export function regenerateWingIngestToken(id) {
   const token = randomBytes(24).toString('hex');
   setWingTokenStmt.run(token, id);
   return token;
+}
+
+// --- roster claim link (self-serve Discord↔member linking) -----------------
+export function getWingClaimToken(id) {
+  const w = getWing(id);
+  if (!w) return null;
+  if (!w.claim_token) {
+    const token = randomBytes(18).toString('hex');
+    setWingClaimTokenStmt.run(token, id);
+    return token;
+  }
+  return w.claim_token;
+}
+export function regenerateWingClaimToken(id) {
+  const token = randomBytes(18).toString('hex');
+  setWingClaimTokenStmt.run(token, id);
+  return token;
+}
+export function getWingByClaimToken(token) {
+  return token ? selectWingByClaimToken.get(String(token)) || null : null;
+}
+// Members on this wing's roster that no one has claimed yet (no Discord link),
+// grouped for the claim picker. Retired members are excluded.
+const selectUnclaimedMembersStmt = db.prepare(`
+  SELECT m.id, m.callsign, m.name, m.modex, m.subdivision, m.squadron_id,
+         sq.tag AS sqn_tag, sq.name AS sqn_name
+  FROM members m LEFT JOIN squadrons sq ON sq.id = m.squadron_id
+  WHERE m.wing_id = ? AND m.discord_user_id IS NULL AND m.status != 'retired'
+  ORDER BY sq.name ASC, m.callsign ASC, m.name ASC
+`);
+export function getUnclaimedMembers(wingId) {
+  return selectUnclaimedMembersStmt.all(wingId);
+}
+// Claim an unlinked member for a Discord id. Returns the member on success, or
+// an error code string. Enforces: member exists on this wing, is still
+// unclaimed, and the Discord id isn't already linked to another member.
+export function claimMember(wingId, memberId, discordUserId) {
+  if (!discordUserId) return 'no_user';
+  if (getMemberByDiscord(discordUserId)) return 'already_linked';   // one pilot per Discord id
+  const m = getMember(memberId);
+  if (!m || m.wing_id !== wingId) return 'bad_member';
+  if (m.discord_user_id) return 'taken';
+  db.prepare('UPDATE members SET discord_user_id = ? WHERE id = ?').run(String(discordUserId), memberId);
+  return getMember(memberId);
 }
 
 const setWingOpsBotStmt = db.prepare(

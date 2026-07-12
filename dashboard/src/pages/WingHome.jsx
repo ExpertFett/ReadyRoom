@@ -64,6 +64,7 @@ export default function WingHome() {
       )}
 
       <Squadrons wing={wing} isAdmin={me.isAdmin} reload={loadWing} />
+      {me.isAdmin && <ClaimLink wingId={wing.id} />}
       <Quals wingId={wing.id} isAdmin={me.isAdmin} />
       <Currency wingId={wing.id} />
       {me.isAdmin && <SortieFeed wingId={wing.id} />}
@@ -585,6 +586,44 @@ function DiscordPublish({ wing }) {
           {status && <span className="muted small">{status}</span>}
         </div>
       </form>
+    </section>
+  );
+}
+
+// Shareable roster-claim link. Pilots open it, log in with Discord, and claim
+// their own roster member — no admin needed to link each one by hand.
+function ClaimLink({ wingId }) {
+  const [url, setUrl] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const reveal = async () => setUrl((await api.get(`/api/wings/${wingId}/claim-link`)).claim_url);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { /* clipboard blocked */ }
+  };
+  const regen = async () => {
+    if (!confirm('Generate a NEW claim link? The old one stops working immediately.')) return;
+    setUrl((await api.post(`/api/wings/${wingId}/claim-link/regen`, {})).claim_url);
+    setCopied(false);
+  };
+  return (
+    <section>
+      <h2>Roster claim link <span className="badge reserve" style={{ marginLeft: 8, fontSize: 11 }}>pilot self-linking</span></h2>
+      <div className="card">
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Share this link (Discord, pinned message) so pilots can <b>link their own Discord</b> to their
+          roster entry — they log in, find their name, and claim it. Add pilots to a squadron roster first;
+          they show up here to be claimed. Safe to share within your community.
+        </p>
+        {url ? (
+          <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <code style={{ wordBreak: 'break-all', flex: '1 1 240px' }}>{url}</code>
+            <button type="button" className="small" onClick={copy}>{copied ? 'Copied ✓' : 'Copy'}</button>
+            <button type="button" className="small" onClick={regen} title="Rotate if it leaks">Regenerate</button>
+          </div>
+        ) : (
+          <button type="button" className="small primary" onClick={reveal}>Reveal claim link</button>
+        )}
+      </div>
     </section>
   );
 }

@@ -7,8 +7,9 @@ import {
   createWing, getWings, getWingsForUser, userHasWingAccess, getWing, updateWing, deleteWing,
   getWingIngestToken, regenerateWingIngestToken, setWingOpsBot, setWingDiscordPaused, getLastPublishedEvent,
   setWingDigestEnabled,
+  getWingClaimToken, regenerateWingClaimToken, getWingByClaimToken, getUnclaimedMembers, claimMember,
   createSquadron, getSquadrons, getSquadron, updateSquadron, deleteSquadron,
-  createMember, getMember, getMembersByWing, getMembersBySquadron, updateMember, deleteMember,
+  createMember, getMember, getMemberByDiscord, getMembersByWing, getMembersBySquadron, updateMember, deleteMember,
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
   createQual, getQuals, getQual, deleteQual, updateQual, reorderQual, bulkAssignQuals,
   getModexPools, setModexPool, deleteModexPool, getAvailableModex,
@@ -339,6 +340,44 @@ export function apiRouter() {
     const url = `${getBaseUrl()}/ingest/${regenerateWingIngestToken(wing.id)}`;
     audit(req, wing.id, 'regenerated', 'ingest_token', wing.id, 'Sortie ingest token rotated');
     res.json({ ingest_url: url });
+  });
+
+  // ----- roster claim link: pilots self-link their Discord to their member -----
+  router.get('/wings/:id/claim-link', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    res.json({ claim_url: `${getBaseUrl()}/claim/${getWingClaimToken(wing.id)}` });
+  });
+  router.post('/wings/:id/claim-link/regen', requireAdmin, (req, res) => {
+    const wing = getWing(Number(req.params.id));
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const url = `${getBaseUrl()}/claim/${regenerateWingClaimToken(wing.id)}`;
+    audit(req, wing.id, 'regenerated', 'claim_token', wing.id, 'Roster claim link rotated');
+    res.json({ claim_url: url });
+  });
+  // Public (logged-in) claim flow — resolves the wing by token, NOT by membership,
+  // so an unlinked pilot can reach their roster. Returns unclaimed members to pick.
+  router.get('/claim/:token', (req, res) => {
+    const actor = getActor(req);
+    if (!actor.user) return res.status(401).json({ error: 'unauthorized' });
+    const wing = getWingByClaimToken(req.params.token);
+    if (!wing) return res.status(404).json({ error: 'bad_token' });
+    const mine = getMemberByDiscord(actor.user.id);
+    res.json({
+      wing: { id: wing.id, name: wing.name, tag: wing.tag || null },
+      already_linked: mine ? { member_id: mine.id, callsign: mine.callsign || mine.name, wing_id: mine.wing_id } : null,
+      members: getUnclaimedMembers(wing.id),
+    });
+  });
+  router.post('/claim/:token', (req, res) => {
+    const actor = getActor(req);
+    if (!actor.user) return res.status(401).json({ error: 'unauthorized' });
+    const wing = getWingByClaimToken(req.params.token);
+    if (!wing) return res.status(404).json({ error: 'bad_token' });
+    const result = claimMember(wing.id, Number(req.body?.member_id), actor.user.id);
+    if (typeof result === 'string') return res.status(409).json({ error: result });
+    audit(req, wing.id, 'claimed', 'member', result.id, `${result.callsign || result.name} self-linked their Discord`);
+    res.json({ ok: true, member: result });
   });
 
   // Discord publish status panel data + pause toggle (Phase 4.4).

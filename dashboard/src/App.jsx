@@ -20,6 +20,7 @@ import Qualifications from './pages/Qualifications.jsx';
 import Training from './pages/Training.jsx';
 import Docs from './pages/Docs.jsx';
 import AuditLog from './pages/AuditLog.jsx';
+import Claim from './pages/Claim.jsx';
 import { DiscordButton } from './components/DiscordButton.jsx';
 import { AppFooter } from './components/AppFooter.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
@@ -131,6 +132,19 @@ export default function App() {
 
   useEffect(() => { loadMe(); }, [loadMe]);
   useEffect(() => { if (me) loadWings(); }, [me, loadWings]);
+
+  // Preserve a /claim/… deep link across the Discord login round-trip: stash it
+  // while logged out, and jump back to it once logged in.
+  useEffect(() => {
+    if (me === undefined) return;
+    const path = window.location.pathname;
+    if (!me) {
+      if (path.startsWith('/claim/')) localStorage.setItem('readyroom.postLogin', path);
+    } else {
+      const dest = localStorage.getItem('readyroom.postLogin');
+      if (dest && dest !== path) { localStorage.removeItem('readyroom.postLogin'); navigate(dest); }
+    }
+  }, [me, navigate]);
 
   // Global Ctrl/Cmd-K opens the command palette.
   useEffect(() => {
@@ -269,6 +283,7 @@ export default function App() {
           <Route path="/training" element={<Training />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/audit-log" element={<AuditLog />} />
+              <Route path="/claim/:token" element={<Claim />} />
               {/* Standalone routes kept for back-compat / direct linking */}
               <Route path="/my-quals" element={<MyQuals />} />
               <Route path="/currency" element={<CurrencyStatus />} />
