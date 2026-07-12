@@ -343,7 +343,22 @@ function AddMember({ sqn, onDone }) {
     callsign: '', name: '', rank: '', billet: '', modex: '', livery: '',
     airframes: sqn.aircraft || '', subdivision: 'main', status: 'active',
   });
+  const [nextFree, setNextFree] = useState(null); // suggested next open modex for the chosen subdivision
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  // Pull the next free modex from THIS squadron's pool for the chosen
+  // subdivision. Prefill the field only while it's empty (never clobber a
+  // number the admin typed); the "use" button lets them take it anytime.
+  useEffect(() => {
+    let alive = true;
+    api.get(`/api/squadrons/${sqn.id}/modex-pools/${f.subdivision}/available`)
+      .then((r) => {
+        if (!alive) return;
+        setNextFree(r.next ?? null);
+        if (r.next != null) setF((cur) => (cur.modex === '' ? { ...cur, modex: String(r.next) } : cur));
+      })
+      .catch(() => { if (alive) setNextFree(null); });
+    return () => { alive = false; };
+  }, [sqn.id, f.subdivision]);
   const submit = async (e) => {
     e.preventDefault();
     if (!f.callsign.trim() && !f.name.trim()) return;
@@ -355,7 +370,17 @@ function AddMember({ sqn, onDone }) {
       <div className="form-grid">
         <div className="field"><label>Callsign</label><input value={f.callsign} onChange={set('callsign')} placeholder="Maverick" /></div>
         <div className="field"><label>Name</label><input value={f.name} onChange={set('name')} placeholder="Pete Mitchell" /></div>
-        <div className="field"><label>Modex</label><input value={f.modex} onChange={set('modex')} placeholder="400" /></div>
+        <div className="field"><label>Modex</label><input value={f.modex} onChange={set('modex')} placeholder="400" />
+          {nextFree != null && (
+            <div className="muted small" style={{ marginTop: 3 }}>
+              Next free: <b>#{nextFree}</b>
+              {String(f.modex) !== String(nextFree) && (
+                <button type="button" className="small" style={{ marginLeft: 6, padding: '1px 7px' }}
+                  onClick={() => setF((cur) => ({ ...cur, modex: String(nextFree) }))}>use</button>
+              )}
+            </div>
+          )}
+        </div>
         <div className="field"><label>Livery</label><input value={f.livery} onChange={set('livery')} placeholder="DCS livery / skin name" /></div>
         <div className="field"><label>Rank</label><input value={f.rank} onChange={set('rank')} placeholder="LT" /></div>
         <div className="field"><label>Billet</label><input value={f.billet} onChange={set('billet')} placeholder="Pilot / CO / OPSO" /></div>
