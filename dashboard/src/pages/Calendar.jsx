@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
+import { useToast } from '../components/Toast.jsx';
 
 const WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -48,6 +49,8 @@ export default function Calendar() {
   const [creating, setCreating] = useState(false);
   const [squads, setSquads] = useState([]);
   const [loas, setLoas] = useState([]);
+  const [reloadTick, setReloadTick] = useState(0);
+  const reload = () => setReloadTick((n) => n + 1);
 
   // Squadron calendar colors — tint each event chip by its host squadron.
   useEffect(() => {
@@ -68,7 +71,7 @@ export default function Calendar() {
     const start = new Date(cursor); start.setDate(1 - cursor.getDay());
     const end = new Date(start); end.setDate(start.getDate() + 42);
     api.get(`/api/wings/${activeWing.id}/events?from=${start.getTime()}&to=${end.getTime()}`).then(setEvents);
-  }, [cursor, activeWing, creating]);
+  }, [cursor, activeWing, creating, reloadTick]);
 
   // Agenda list: everything from now out ~90 days, soonest first.
   useEffect(() => {
@@ -76,7 +79,7 @@ export default function Calendar() {
     const now = Date.now();
     api.get(`/api/wings/${activeWing.id}/events?from=${now}&to=${now + 90 * 86400000}`)
       .then((list) => setUpcoming((list || []).filter((e) => e.start_at >= now - 3600000)));
-  }, [activeWing, creating]);
+  }, [activeWing, creating, reloadTick]);
 
   if (!activeWing) return <div className="empty">No wing yet. <Link to="/wing">Set one up →</Link></div>;
 
@@ -128,7 +131,7 @@ export default function Calendar() {
       {creating && <CreateEvent wing={activeWing} onDone={() => setCreating(false)} />}
 
       {view === 'list' ? (
-        <AgendaList events={upcoming} />
+        <AgendaList events={upcoming} isAdmin={me.isAdmin} onPosted={reload} />
       ) : (
         <>
           <div className="row" style={{ alignItems: 'center', marginTop: 12, gap: 8 }}>
@@ -188,7 +191,7 @@ export default function Calendar() {
 // Upfront agenda: upcoming events as scannable rows so members don't have to
 // dig through the month grid. Date/time on the left, title + flight summary in
 // the middle, seats filled on the right; the whole row links to the event.
-function AgendaList({ events }) {
+function AgendaList({ events, isAdmin, onPosted }) {
   if (!events.length) return <div className="empty" style={{ marginTop: 14 }}>No upcoming events.</div>;
   return (
     <div className="card" style={{ padding: 0, marginTop: 14 }}>
@@ -207,10 +210,43 @@ function AgendaList({ events }) {
               <div className="small muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{eventSummary(e)}</div>
             </div>
           </div>
-          {e.seats_total > 0 && <span className="seat-pill" title="Seats filled">{e.seats_filled}/{e.seats_total}</span>}
+          <div className="row" style={{ gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
+            {e.seats_total > 0 && <span className="seat-pill" title="Seats filled">{e.seats_filled}/{e.seats_total}</span>}
+            {isAdmin && <PostToDiscord event={e} onPosted={onPosted} />}
+          </div>
         </Link>
       ))}
     </div>
+  );
+}
+
+// Post (or repost) an event to Discord straight from the calendar — no need to
+// open the event or run a Discord slash command. Lives inside a row <Link>, so
+// it stops the click from navigating. Reuses POST /events/:id/republish.
+function PostToDiscord({ event, onPosted }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const posted = !!event.discord_message_id;
+  const post = async (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    setBusy(true);
+    try {
+      await api.post(`/api/events/${event.id}/republish`, {});
+      toast.success(posted ? 'Reposted to Discord ✓' : 'Posted to Discord ✓');
+      onPosted?.();
+    } catch (err) {
+      toast.error(err.data?.error === 'discord_not_configured'
+        ? "Discord isn't set up for this wing yet — Wing → Discord publish."
+        : err.data?.error === 'publish_failed'
+          ? "Ops Bot couldn't post it — check the wing's Discord settings."
+          : "Couldn't post to Discord.");
+    } finally { setBusy(false); }
+  };
+  return (
+    <button className={`small${posted ? '' : ' primary'}`} onClick={post} disabled={busy}
+      title={posted ? 'Repost this event to Discord' : 'Post this event to Discord'}>
+      {busy ? '…' : posted ? '↻ Repost' : '📣 Post'}
+    </button>
   );
 }
 
