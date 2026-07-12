@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
@@ -46,6 +46,8 @@ export default function Dashboard() {
       </div>
 
       <SetupCard wingId={activeWing.id} isAdmin={me.isAdmin} />
+
+      <NextEventHero events={events} myEvents={myEvents} />
 
       <KPITiles stats={stats} />
 
@@ -125,6 +127,57 @@ export default function Dashboard() {
       <LOAPanel wing={activeWing} me={me} />
     </div>
   );
+}
+
+// T-minus hero for the soonest upcoming event: live countdown + your slot.
+function NextEventHero({ events, myEvents }) {
+  const [now, setNow] = useState(Date.now());
+  const next = useMemo(
+    () => [...(events || [])].filter((e) => e.start_at).sort((a, b) => a.start_at - b.start_at)[0],
+    [events],
+  );
+  useEffect(() => {
+    if (!next) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [next]);
+  if (!next) return null;
+
+  const mine = (myEvents || []).find((e) => e.event_id === next.id);
+  const diff = next.start_at - now;
+  const live = diff <= 0;
+  const cd = countdownParts(Math.abs(diff));
+
+  return (
+    <Link to={`/events/${next.id}`} className={`next-hero${live ? ' live' : ''}`}>
+      <div className="nh-left">
+        <div className="nh-kicker">{live ? '● In progress' : 'Next event'}</div>
+        <div className="nh-title">{next.kind === 'extra_credit' ? '★ ' : ''}{next.title}</div>
+        <div className="nh-meta">
+          {new Date(next.start_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          {next.seats_total > 0 && <> · <span className="seat-pill">{next.seats_filled}/{next.seats_total} seats</span></>}
+          {mine && <span className="badge active" style={{ marginLeft: 8 }}>✓ {mine.role_label || "You're in"}</span>}
+        </div>
+      </div>
+      <div className="nh-clock">
+        {live ? <div className="nh-live-badge">LIVE</div> : (
+          <>
+            {cd.d > 0 && <Seg n={cd.d} l="days" />}
+            <Seg n={cd.h} l="hrs" />
+            <Seg n={cd.m} l="min" />
+            {cd.d === 0 && <Seg n={cd.s} l="sec" />}
+          </>
+        )}
+      </div>
+    </Link>
+  );
+}
+function Seg({ n, l }) {
+  return <div className="nh-seg"><span className="nh-seg-n">{String(n).padStart(2, '0')}</span><span className="nh-seg-l">{l}</span></div>;
+}
+function countdownParts(ms) {
+  const s = Math.floor(ms / 1000);
+  return { d: Math.floor(s / 86400), h: Math.floor((s % 86400) / 3600), m: Math.floor((s % 3600) / 60), s: s % 60 };
 }
 
 // Six "how's the wing today" tiles, color-coded by domain. Tiles render even

@@ -22,6 +22,7 @@ import Docs from './pages/Docs.jsx';
 import AuditLog from './pages/AuditLog.jsx';
 import { DiscordButton } from './components/DiscordButton.jsx';
 import { AppFooter } from './components/AppFooter.jsx';
+import CommandPalette from './components/CommandPalette.jsx';
 import { VERSION } from './version.js';
 
 const MeContext = createContext(null);
@@ -98,6 +99,7 @@ function SideNav({ onNavigate }) {
 export default function App() {
   const [me, setMe] = useState(undefined); // undefined = loading, null = logged out
   const [navOpen, setNavOpen] = useState(false); // mobile drawer
+  const [paletteOpen, setPaletteOpen] = useState(false); // Ctrl/Cmd-K
   const [wings, setWings] = useState([]);
   const [wingsLoaded, setWingsLoaded] = useState(false); // false until /api/wings first resolves
   // Active wing selection persists across reloads. Root admins (and anyone
@@ -129,6 +131,18 @@ export default function App() {
 
   useEffect(() => { loadMe(); }, [loadMe]);
   useEffect(() => { if (me) loadWings(); }, [me, loadWings]);
+
+  // Global Ctrl/Cmd-K opens the command palette.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // The wings to actually offer in the switcher. A platform/root admin can
   // technically receive every tenant's wing from /api/wings; curate that down
@@ -200,6 +214,13 @@ export default function App() {
                 <line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" />
               </svg>
             </button>
+            <button className="cmdk-trigger" onClick={() => setPaletteOpen(true)} title="Search (Ctrl+K)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <span className="cmdk-trigger-label">Search</span>
+              <kbd>Ctrl K</kbd>
+            </button>
             <span className="spacer" />
             {activeWing && (myWings.length > 1 ? (
               // 2+ wings: a real switcher.
@@ -256,6 +277,7 @@ export default function App() {
           <AppFooter me={me} version={VERSION} />
         </div>
       </div>
+      {paletteOpen && <CommandPalette activeWing={activeWing} isAdmin={me.isAdmin} onClose={() => setPaletteOpen(false)} />}
       <DiscordButton />
     </MeContext.Provider>
   );

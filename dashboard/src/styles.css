@@ -528,6 +528,108 @@ a.g-pilot:hover { color: var(--accent-hi); text-decoration: none; }
 .greenie-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .greenie-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 
+/* ---------------- command palette ---------------- */
+.cmdk-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  background: var(--bg-raise); border: 1px solid var(--border-2); color: var(--muted);
+  font-size: 13px; max-width: 240px;
+}
+.cmdk-trigger:hover { border-color: var(--accent); color: var(--text); background: var(--panel-2); }
+.cmdk-trigger svg { width: 15px; height: 15px; flex: 0 0 15px; }
+.cmdk-trigger kbd, .cmdk-foot kbd {
+  font-family: var(--font-display); font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+  padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border-2);
+  background: var(--panel); color: var(--muted);
+}
+.cmdk-scrim {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(4, 6, 10, 0.62); backdrop-filter: blur(3px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 12vh;
+}
+.cmdk {
+  width: min(560px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--accent-dim);
+  overflow: hidden;
+}
+.cmdk-input {
+  width: 100%; border: none; border-radius: 0;
+  background: transparent; padding: 16px 18px; font-size: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cmdk-input:focus { box-shadow: none; border-color: var(--border); }
+.cmdk-results { max-height: 46vh; overflow-y: auto; padding: 6px; }
+.cmdk-item {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: var(--radius-sm); border: none; background: transparent;
+  text-align: left; color: var(--text);
+}
+.cmdk-item.sel { background: var(--accent-dim); }
+.cmdk-type {
+  flex: 0 0 62px; font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 1px; text-transform: uppercase; color: var(--muted);
+}
+.cmdk-item.sel .cmdk-type { color: var(--accent-hi); }
+.cmdk-label { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmdk-hint { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cmdk-empty { padding: 24px; text-align: center; color: var(--muted); }
+.cmdk-foot { padding: 8px 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11.5px; display: flex; gap: 8px; }
+
+/* ---------------- toasts ---------------- */
+.toast-stack {
+  position: fixed; right: 18px; bottom: 18px; z-index: 1100;
+  display: flex; flex-direction: column; gap: 10px; max-width: 360px;
+}
+.toast {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 14px; border-radius: var(--radius-sm);
+  background: var(--panel-3); border: 1px solid var(--border-2);
+  box-shadow: var(--shadow-1); cursor: pointer; font-size: 13.5px;
+  animation: toast-in .18s ease-out;
+}
+.toast-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; background: var(--accent); }
+.toast-success { border-color: rgba(63, 185, 80, 0.5); }
+.toast-success .toast-dot { background: var(--good); box-shadow: 0 0 7px rgba(63, 185, 80, 0.7); }
+.toast-error { border-color: rgba(248, 81, 73, 0.5); }
+.toast-error .toast-dot { background: var(--danger); box-shadow: 0 0 7px rgba(248, 81, 73, 0.7); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+/* ---------------- next-event hero ---------------- */
+.next-hero {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  margin: 14px 0 4px; padding: 16px 20px;
+  border-radius: var(--radius); border: 1px solid var(--border-2);
+  background:
+    radial-gradient(600px 140px at 90% -40px, var(--accent-glow), transparent 70%),
+    linear-gradient(180deg, rgba(76, 139, 245, 0.05), rgba(255, 255, 255, 0)), var(--panel);
+  box-shadow: var(--shadow-1); color: var(--text); text-decoration: none;
+  transition: border-color .14s, box-shadow .14s;
+}
+.next-hero:hover { text-decoration: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim), 0 10px 30px rgba(0, 0, 0, 0.35); }
+.next-hero.live { border-color: rgba(63, 185, 80, 0.5); }
+.nh-left { min-width: 0; }
+.nh-kicker { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--accent-hi); }
+.next-hero.live .nh-kicker { color: var(--good); }
+.nh-title { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: 0.4px; margin: 3px 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nh-meta { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.nh-clock { display: flex; gap: 8px; flex: 0 0 auto; }
+.nh-seg { text-align: center; min-width: 46px; padding: 6px 8px; border-radius: var(--radius-sm); background: rgba(0, 0, 0, 0.28); border: 1px solid var(--border); }
+.nh-seg-n { display: block; font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.nh-seg-l { display: block; font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+.nh-live-badge {
+  font-family: var(--font-display); font-weight: 800; letter-spacing: 3px; font-size: 20px; color: var(--good);
+  padding: 8px 16px; border: 1px solid rgba(63, 185, 80, 0.5); border-radius: var(--radius-sm);
+  background: rgba(63, 185, 80, 0.08); animation: led-pulse 1.8s ease-in-out infinite;
+}
+@media (max-width: 560px) {
+  .next-hero { flex-direction: column; align-items: flex-start; }
+  .nh-title { white-space: normal; }
+}
+
 /* ---------------- sidebar link LED ---------------- */
 .led { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
 .led.on { background: var(--good); box-shadow: 0 0 8px rgba(63, 185, 80, 0.75); animation: led-pulse 2.4s ease-in-out infinite; }
@@ -597,4 +699,39 @@ a.g-pilot:hover { color: var(--accent-hi); text-decoration: none; }
 /* Very small phones: one KPI tile per row so the big numbers stay legible. */
 @media (max-width: 400px) {
   .kpi-grid { grid-template-columns: 1fr; }
+}
+
+/* Hide the search label on tight topbars (keep the icon + kbd). */
+@media (max-width: 720px) {
+  .cmdk-trigger-label { display: none; }
+  .cmdk-trigger { max-width: none; }
+}
+
+/* ===================================================================
+   Kneeboard print sheet — clean black-on-white for the pit / clipboard.
+   Chrome (sidebar/topbar/footer/buttons) drops out; content prints full
+   width. Add class "no-print" to anything else you don't want on paper.
+   =================================================================== */
+@media print {
+  :root { --text: #000; --muted: #333; --border: #999; --border-2: #999; }
+  body { background: #fff !important; color: #000; }
+  .sidebar, .topbar, .app-footer, .discord-fab, .nav-scrim, .cmdk-scrim,
+  .toast-stack, .no-print, button, .btn { display: none !important; }
+  .shell { display: block; }
+  .main-col { display: block; }
+  .container { max-width: none; padding: 0; }
+  .card, .greenie, .next-hero {
+    background: #fff !important; border: 1px solid #bbb !important;
+    box-shadow: none !important; break-inside: avoid;
+  }
+  a { color: #000 !important; text-decoration: none; }
+  h1, h2, h3 { color: #000; }
+  h2::before { background: #000; }
+  th { background: #eee !important; color: #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  table:not(.training-board) thead th { position: static; }
+  .badge, .tier, .qcode, .seat-pill { border-color: #999 !important; color: #000 !important; background: #fff !important; }
+  /* Greenie board keeps its colors on paper — that's the whole point. */
+  .g-cell, .greenie-legend i { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .greenie { background: #fff !important; }
+  .g-pilot, .g-num, .greenie-head { color: #000 !important; }
 }

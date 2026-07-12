@@ -17,6 +17,7 @@ export function DiscordButton() {
       href={DISCORD_INVITE}
       target="_blank"
       rel="noopener noreferrer"
+      className="discord-fab"
       title="Join the DCS:OPT Discord — feedback & support"
       style={{
         position: 'fixed',
