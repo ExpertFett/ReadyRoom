@@ -5,7 +5,13 @@ import { useMe } from '../App.jsx';
 
 const WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const isoDay = (d) => d.toISOString().slice(0, 10);
+// Local calendar-day key (NOT toISOString — that's UTC, which drops an evening
+// event into the next day's cell for anyone behind UTC even though its stored
+// time is correct). Uses the same local date the cells + "today" are built from.
+const isoDay = (d) => {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+};
 
 // Compact local time for calendar chips, e.g. "7:30p" or "9a". Always shows
 // so you can see WHEN an event is right on the month grid, not just its title.
