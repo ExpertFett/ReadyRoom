@@ -16,13 +16,23 @@ import { api } from '../api.js';
 import { useMe } from '../App.jsx';
 
 export default function Docs() {
-  const { me, activeWing } = useMe();
+  const { me, activeWing, activeSquadron } = useMe();
   const [docs, setDocs] = useState(null);
   const [squadrons, setSquadrons] = useState([]);
   const [quals, setQuals] = useState([]);
-  const [active, setActive] = useState({ scope: 'wing', scope_id: null }); // active category
+  // Default the active category to the squadron in view (its docs section);
+  // "Whole wing" lands on Wing Documents.
+  const [active, setActive] = useState(() => activeSquadron
+    ? { scope: 'squadron', scope_id: activeSquadron.id }
+    : { scope: 'wing', scope_id: null });
   const [openDoc, setOpenDoc] = useState(null); // {id} for read/edit
   const [creating, setCreating] = useState(false);
+
+  // Re-default when the squadron view changes.
+  useEffect(() => {
+    setActive(activeSquadron ? { scope: 'squadron', scope_id: activeSquadron.id } : { scope: 'wing', scope_id: null });
+    setOpenDoc(null); setCreating(false);
+  }, [activeSquadron?.id]);
 
   const load = async () => {
     if (!activeWing) return;

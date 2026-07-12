@@ -39,7 +39,9 @@ function eventSummary(e) {
 }
 
 export default function Calendar() {
-  const { me, activeWing } = useMe();
+  const { me, activeWing, activeSquadron } = useMe();
+  // When a squadron view is active, scope events to it (its own + wing-wide/all-hands).
+  const sqQ = activeSquadron ? `&squadron_id=${activeSquadron.id}` : '';
   const [view, setView] = useState('list'); // 'list' (upfront agenda) | 'month'
   const [cursor, setCursor] = useState(() => {
     const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d;
@@ -71,16 +73,16 @@ export default function Calendar() {
     if (!activeWing) return;
     const start = new Date(cursor); start.setDate(1 - cursor.getDay());
     const end = new Date(start); end.setDate(start.getDate() + 42);
-    api.get(`/api/wings/${activeWing.id}/events?from=${start.getTime()}&to=${end.getTime()}`).then(setEvents);
-  }, [cursor, activeWing, creating, reloadTick]);
+    api.get(`/api/wings/${activeWing.id}/events?from=${start.getTime()}&to=${end.getTime()}${sqQ}`).then(setEvents);
+  }, [cursor, activeWing, creating, reloadTick, sqQ]);
 
   // Agenda list: everything from now out ~90 days, soonest first.
   useEffect(() => {
     if (!activeWing) return;
     const now = Date.now();
-    api.get(`/api/wings/${activeWing.id}/events?from=${now}&to=${now + 90 * 86400000}`)
+    api.get(`/api/wings/${activeWing.id}/events?from=${now}&to=${now + 90 * 86400000}${sqQ}`)
       .then((list) => setUpcoming((list || []).filter((e) => e.start_at >= now - 3600000)));
-  }, [activeWing, creating, reloadTick]);
+  }, [activeWing, creating, reloadTick, sqQ]);
 
   if (!activeWing) return <div className="empty">No wing yet. <Link to="/wing">Set one up →</Link></div>;
 
@@ -121,7 +123,12 @@ export default function Calendar() {
   return (
     <div>
       <div className="between">
-        <h1>Events</h1>
+        <div>
+          <h1>Events</h1>
+          <p className="muted small" style={{ marginTop: -2 }}>
+            {activeSquadron ? <>{activeSquadron.tag || activeSquadron.name} — squadron events + all-hands</> : 'Whole wing'}
+          </p>
+        </div>
         <div className="row" style={{ gap: 8 }}>
           <button className={`small ${view === 'list' ? 'primary' : ''}`} onClick={() => setView('list')}>List</button>
           <button className={`small ${view === 'month' ? 'primary' : ''}`} onClick={() => setView('month')}>Month</button>
@@ -130,7 +137,7 @@ export default function Calendar() {
         </div>
       </div>
 
-      {creating && <CreateEvent wing={activeWing} onDone={() => setCreating(false)} />}
+      {creating && <CreateEvent wing={activeWing} defaultSquadronId={activeSquadron?.id} onDone={() => setCreating(false)} />}
       {posting && <PostModal wing={activeWing} events={upcoming} onClose={() => setPosting(false)} onPosted={reload} />}
 
       {view === 'list' ? (
@@ -407,10 +414,10 @@ function PostModal({ wing, events, onClose, onPosted }) {
   );
 }
 
-function CreateEvent({ wing, onDone }) {
+function CreateEvent({ wing, defaultSquadronId, onDone }) {
   const navigate = useNavigate();
   const [squadrons, setSquadrons] = useState([]);
-  const [f, setF] = useState({ title: '', kind: 'squadron', start_at: '', squadron_id: '', description: '', track_attendance: true });
+  const [f, setF] = useState({ title: '', kind: 'squadron', start_at: '', squadron_id: defaultSquadronId ? String(defaultSquadronId) : '', description: '', track_attendance: true });
   const [flights, setFlights] = useState([]); // [{ name, tasking, seats, qual }]
   const [postMode, setPostMode] = useState('now'); // now | schedule | none
   const [postAt, setPostAt] = useState('');

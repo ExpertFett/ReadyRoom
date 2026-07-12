@@ -10,7 +10,7 @@ const dayMs = 86400000;
 const toIso = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 export default function Metrics() {
-  const { me, activeWing } = useMe();
+  const { me, activeWing, activeSquadron } = useMe();
   const [range, setRange] = useState(() => ({
     from: toIso(Date.now() - 90 * dayMs),
     to: toIso(Date.now() + dayMs),
@@ -19,15 +19,16 @@ export default function Metrics() {
   const [perf, setPerf] = useState([]);
   const [series, setSeries] = useState([]);
   const [mode, setMode] = useState('pct'); // 'pct' = attendance rate · 'count' = attended headcount
+  const sqQ = activeSquadron ? `&squadron_id=${activeSquadron.id}` : '';
 
   const load = async () => {
     if (!activeWing) return;
     const fromMs = new Date(range.from).getTime();
     const toMs = new Date(range.to).getTime();
     const [m, p, ts] = await Promise.all([
-      api.get(`/api/wings/${activeWing.id}/attendance-metrics?from=${fromMs}&to=${toMs}`),
-      api.get(`/api/wings/${activeWing.id}/pilot-performance?from=${fromMs}&to=${toMs}`),
-      api.get(`/api/wings/${activeWing.id}/attendance-timeseries?from=${fromMs}&to=${toMs}`),
+      api.get(`/api/wings/${activeWing.id}/attendance-metrics?from=${fromMs}&to=${toMs}${sqQ}`),
+      api.get(`/api/wings/${activeWing.id}/pilot-performance?from=${fromMs}&to=${toMs}${sqQ}`),
+      api.get(`/api/wings/${activeWing.id}/attendance-timeseries?from=${fromMs}&to=${toMs}${sqQ}`),
     ]);
     setMetrics(m); setPerf(p); setSeries(ts);
   };
@@ -68,7 +69,7 @@ export default function Metrics() {
       .filter((e) => e.start_at <= now && (e.total_marks || 0) === 0)
       .sort((a, b) => b.start_at - a.start_at);
   }, [series]);
-  useEffect(() => { load(); }, [range, activeWing]);
+  useEffect(() => { load(); }, [range, activeWing, sqQ]);
 
   const preset = (days) => () => setRange({ from: toIso(Date.now() - days * dayMs), to: toIso(Date.now() + dayMs) });
 
@@ -77,7 +78,7 @@ export default function Metrics() {
   return (
     <div>
       <h1>Attendance metrics</h1>
-      <p className="muted small">Across all tracked events in the selected date range.</p>
+      <p className="muted small">{activeSquadron ? `${activeSquadron.tag || activeSquadron.name} members` : 'Whole wing'} · tracked events in the selected range.</p>
 
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="row" style={{ alignItems: 'flex-end' }}>

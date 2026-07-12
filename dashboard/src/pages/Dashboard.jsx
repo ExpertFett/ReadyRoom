@@ -7,24 +7,25 @@ import SetupCard from '../components/SetupCard.jsx';
 const fmt = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'TBD');
 
 export default function Dashboard() {
-  const { me, activeWing } = useMe();
+  const { me, activeWing, activeSquadron } = useMe();
   const [data, setData] = useState(null);
   const [stats, setStats] = useState(null);
   const [events, setEvents] = useState([]);
   const [myEvents, setMyEvents] = useState([]);
+  const sqQ = activeSquadron ? `&squadron_id=${activeSquadron.id}` : '';
 
   useEffect(() => {
     if (!activeWing) return;
     api.get(`/api/dashboard?wing_id=${activeWing.id}`).then(setData);
     api.get(`/api/wings/${activeWing.id}/dashboard-stats`).then(setStats).catch(() => setStats(null));
     const now = Date.now();
-    api.get(`/api/wings/${activeWing.id}/events?from=${now}&to=${now + 30 * 86400000}`)
+    api.get(`/api/wings/${activeWing.id}/events?from=${now}&to=${now + 30 * 86400000}${sqQ}`)
       .then((list) => setEvents((list || []).filter((e) => e.start_at >= now - 3600000).slice(0, 6)))
       .catch(() => setEvents([]));
     if (me.member) {
       api.get(`/api/members/${me.member.id}/event-signups`).then((l) => setMyEvents(l || [])).catch(() => setMyEvents([]));
     }
-  }, [activeWing, me.member]);
+  }, [activeWing, me.member, sqQ]);
 
   if (!activeWing) {
     // Any signed-in user with no wing can create one and becomes its admin.

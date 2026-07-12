@@ -1679,7 +1679,7 @@ export function apiRouter() {
     const from = ms(req.query.from);
     const to = ms(req.query.to);
     if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
-    res.json(getAttendanceMetrics(wing.id, from, to));
+    res.json(getAttendanceMetrics(wing.id, from, to, { squadronId: Number(req.query.squadron_id) || null }));
   });
   router.get('/wings/:id/pilot-performance', (req, res) => {
     const wing = getWing(Number(req.params.id));
@@ -1687,7 +1687,7 @@ export function apiRouter() {
     const from = ms(req.query.from);
     const to = ms(req.query.to);
     if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
-    res.json(getPilotPerformance(wing.id, from, to));
+    res.json(getPilotPerformance(wing.id, from, to, { squadronId: Number(req.query.squadron_id) || null }));
   });
   // Per-event timeseries — powers the bar charts on the Metrics page.
   router.get('/wings/:id/attendance-timeseries', (req, res) => {
@@ -1696,7 +1696,7 @@ export function apiRouter() {
     const from = ms(req.query.from);
     const to = ms(req.query.to);
     if (from == null || to == null) return res.status(400).json({ error: 'missing_range' });
-    res.json(getAttendanceTimeseries(wing.id, from, to));
+    res.json(getAttendanceTimeseries(wing.id, from, to, { squadronId: Number(req.query.squadron_id) || null }));
   });
 
   // ----- CSV exports (admin data portability) -----

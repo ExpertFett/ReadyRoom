@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Routes, Route, Link, NavLink, useNavigate } from 'react-router-dom';
 import { api } from './api.js';
 import Landing from './pages/Landing.jsx';
@@ -110,6 +110,14 @@ export default function App() {
     const v = localStorage.getItem('readyroom.activeWingId');
     return v ? Number(v) : null;
   });
+  // Active squadron VIEW: null = whole wing. Soft-defaults to the pilot's own
+  // squadron; once they pick explicitly it persists ('wing' = explicit all-wing).
+  const [activeSquadronId, setActiveSquadronId] = useState(() => {
+    const v = localStorage.getItem('readyroom.activeSquadronId');
+    return v == null || v === 'wing' ? null : Number(v);
+  });
+  const squadronPicked = useRef(localStorage.getItem('readyroom.activeSquadronId') != null);
+  const [squadrons, setSquadrons] = useState([]);
   const navigate = useNavigate();
 
   const loadMe = useCallback(async () => {
@@ -181,6 +189,26 @@ export default function App() {
     return mine.length ? mine : wings;
   }, [wings, me]);
 
+  // Resolve the active wing here (before the early returns) so the squadron
+  // effects below can depend on it. Null when logged out / no wings.
+  const activeWing = myWings.find((w) => w.id === activeWingId) || myWings[0] || null;
+
+  // Load the active wing's squadrons — feeds the squadron switcher + scoping.
+  useEffect(() => {
+    if (!activeWing) { setSquadrons([]); return; }
+    api.get(`/api/squadrons?wing_id=${activeWing.id}`).then(setSquadrons).catch(() => setSquadrons([]));
+  }, [activeWing?.id]);
+
+  // Soft-default the active-squadron view to the pilot's own squadron, once, if
+  // they never picked. A member logging in lands on THEIR squadron.
+  useEffect(() => {
+    if (squadronPicked.current || !me?.member?.squadron_id || !squadrons.length) return;
+    if (squadrons.some((s) => s.id === me.member.squadron_id)) {
+      setActiveSquadronId(me.member.squadron_id);
+      squadronPicked.current = true;
+    }
+  }, [me, squadrons]);
+
   if (me === undefined) {
     return <div className="login-wrap"><div className="muted">Loading…</div></div>;
   }
@@ -191,14 +219,26 @@ export default function App() {
   // etc. come from the comma-separated capabilities field on their member.
   const caps = (me.member?.capabilities || '').split(',').map((c) => c.trim()).filter(Boolean);
 
-  // Resolve the active wing: saved selection if it's still in my list,
-  // otherwise my first wing. Falls back gracefully when a wing is deleted.
-  const activeWing = myWings.find((w) => w.id === activeWingId) || myWings[0] || null;
+  // The resolved active squadron (or null = whole wing).
+  const activeSquadron = squadrons.find((s) => s.id === activeSquadronId) || null;
   const switchWing = (id) => {
     setActiveWingId(id);
     localStorage.setItem('readyroom.activeWingId', String(id));
+    // New wing → let the squadron view re-default to the pilot's squadron there.
+    setActiveSquadronId(null);
+    squadronPicked.current = false;
+    localStorage.removeItem('readyroom.activeSquadronId');
     navigate('/');
   };
+  const switchSquadron = (id) => {
+    setActiveSquadronId(id);
+    localStorage.setItem('readyroom.activeSquadronId', id == null ? 'wing' : String(id));
+    squadronPicked.current = true;
+    navigate('/');
+  };
+  // Squadron options for the switcher: admins see all; a member sees just their
+  // own (they can still flip to Whole wing). Detachments included.
+  const sqnOptions = me.isAdmin ? squadrons : squadrons.filter((s) => me.member && s.id === me.member.squadron_id);
   const logout = async () => {
     await api.post('/auth/logout');
     setMe(null);
@@ -206,7 +246,7 @@ export default function App() {
   };
 
   return (
-    <MeContext.Provider value={{ me, reload: loadMe, wings, wingsLoaded, activeWing, reloadWings: loadWings, switchWing }}>
+    <MeContext.Provider value={{ me, reload: loadMe, wings, wingsLoaded, activeWing, reloadWings: loadWings, switchWing, squadrons, activeSquadron, activeSquadronId, switchSquadron }}>
       <div className={`shell${navOpen ? ' nav-open' : ''}`}>
         <aside className={`sidebar${navOpen ? ' open' : ''}`}>
           <Link to="/" className="brand" aria-label="ReadyRoom" onClick={() => setNavOpen(false)}>
@@ -259,6 +299,20 @@ export default function App() {
                 {activeWing.tag || activeWing.name}
               </span>
             ))}
+            {/* Squadron view switcher — a member lands on their squadron; "Whole
+                wing" is always available; admins see every squadron. */}
+            {activeWing && sqnOptions.length > 0 && (
+              <select
+                className="wing-switch"
+                value={activeSquadronId ?? ''}
+                onChange={(e) => switchSquadron(e.target.value ? Number(e.target.value) : null)}
+                title="Squadron view"
+                style={{ width: 'auto', maxWidth: 160, marginRight: 8 }}
+              >
+                <option value="">🌐 Whole wing</option>
+                {sqnOptions.map((s) => <option key={s.id} value={s.id}>{s.tag || s.name}</option>)}
+              </select>
+            )}
             <div className="role-pills">
               {me.isAdmin && <span className="badge admin">ADMIN</span>}
               {me.role === 'commander' && !me.isAdmin && <span className="badge commander">CO</span>}

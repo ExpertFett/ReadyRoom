@@ -540,10 +540,66 @@ const selectPilotPerformance = db.prepare(`
   ORDER BY m.squadron_id ASC, m.modex ASC, m.callsign ASC
 `);
 
-export function getAttendanceMetrics(wingId, fromMs, toMs) {
-  const events_tracked = countEventsInRange.get(wingId, fromMs, toMs).n;
+// --- squadron-scoped variants: same metrics over ONE squadron's members'
+// attendance (join members, filter squadron_id). ---
+const countEventsInRangeSqn = db.prepare(`
+  SELECT COUNT(DISTINCT a.event_id) AS n
+  FROM event_attendance a JOIN events e ON e.id = a.event_id JOIN members m ON m.id = a.member_id
+  WHERE e.wing_id = ? AND e.start_at >= ? AND e.start_at < ? AND e.track_attendance = 1 AND m.squadron_id = ?
+`);
+const countAttendanceByStatusSqn = db.prepare(`
+  SELECT a.status, COUNT(*) AS n
+  FROM event_attendance a JOIN events e ON e.id = a.event_id JOIN members m ON m.id = a.member_id
+  WHERE e.wing_id = ? AND e.start_at >= ? AND e.start_at < ? AND e.track_attendance = 1 AND m.squadron_id = ?
+  GROUP BY a.status
+`);
+const countPilotsTrackedSqn = db.prepare(`
+  SELECT COUNT(DISTINCT a.member_id) AS n
+  FROM event_attendance a JOIN events e ON e.id = a.event_id JOIN members m ON m.id = a.member_id
+  WHERE e.wing_id = ? AND e.start_at >= ? AND e.start_at < ? AND m.squadron_id = ?
+`);
+const selectPilotPerformanceSqn = db.prepare(`
+  SELECT m.id AS member_id, m.callsign, m.modex, m.rank, m.squadron_id, sq.tag AS sqn_tag,
+         COUNT(a.event_id) AS events,
+         SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) AS present,
+         SUM(CASE WHEN a.status = 'extra_credit' THEN 1 ELSE 0 END) AS extra_credit,
+         SUM(CASE WHEN a.status = 'excused' THEN 1 ELSE 0 END) AS excused,
+         SUM(CASE WHEN a.status = 'ua' THEN 1 ELSE 0 END) AS ua,
+         SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absent
+  FROM members m
+  LEFT JOIN event_attendance a ON a.member_id = m.id
+  LEFT JOIN events e ON e.id = a.event_id AND e.wing_id = m.wing_id
+    AND e.start_at >= ? AND e.start_at < ? AND e.track_attendance = 1
+  LEFT JOIN squadrons sq ON sq.id = m.squadron_id
+  WHERE m.wing_id = ? AND m.squadron_id = ? AND m.status != 'retired'
+  GROUP BY m.id
+  HAVING events > 0
+  ORDER BY m.modex ASC, m.callsign ASC
+`);
+const selectTimeseriesSqn = db.prepare(`
+  SELECT e.id, e.title, e.kind, e.start_at,
+    SUM(CASE WHEN ea.status = 'present'      THEN 1 ELSE 0 END) AS present,
+    SUM(CASE WHEN ea.status = 'extra_credit' THEN 1 ELSE 0 END) AS extra_credit,
+    SUM(CASE WHEN ea.status = 'excused'      THEN 1 ELSE 0 END) AS excused,
+    SUM(CASE WHEN ea.status = 'ua'           THEN 1 ELSE 0 END) AS ua,
+    SUM(CASE WHEN ea.status = 'absent'       THEN 1 ELSE 0 END) AS absent
+  FROM events e
+  LEFT JOIN event_attendance ea ON ea.event_id = e.id
+    AND ea.member_id IN (SELECT id FROM members WHERE squadron_id = ?)
+  WHERE e.wing_id = ? AND e.start_at BETWEEN ? AND ? AND e.track_attendance = 1
+  GROUP BY e.id
+  HAVING COUNT(ea.member_id) > 0
+  ORDER BY e.start_at ASC
+`);
+
+export function getAttendanceMetrics(wingId, fromMs, toMs, { squadronId } = {}) {
+  const events_tracked = squadronId
+    ? countEventsInRangeSqn.get(wingId, fromMs, toMs, squadronId).n
+    : countEventsInRange.get(wingId, fromMs, toMs).n;
   const byStatus = Object.fromEntries(
-    countAttendanceByStatus.all(wingId, fromMs, toMs).map((r) => [r.status, r.n])
+    (squadronId
+      ? countAttendanceByStatusSqn.all(wingId, fromMs, toMs, squadronId)
+      : countAttendanceByStatus.all(wingId, fromMs, toMs)).map((r) => [r.status, r.n])
   );
   const present = byStatus.present || 0;
   const extra = byStatus.extra_credit || 0;
@@ -554,7 +610,9 @@ export function getAttendanceMetrics(wingId, fromMs, toMs) {
   const attendance_rate = totalMarks ? Math.round(((present + extra) / totalMarks) * 1000) / 10 : 0;
   return {
     events_tracked,
-    pilots_tracked: countPilotsTracked.get(wingId, fromMs, toMs).n,
+    pilots_tracked: squadronId
+      ? countPilotsTrackedSqn.get(wingId, fromMs, toMs, squadronId).n
+      : countPilotsTracked.get(wingId, fromMs, toMs).n,
     attendance_rate,                    // percent (one decimal)
     present, extra_credit: extra, excused, ua_instances: ua, absent,
   };
@@ -575,8 +633,11 @@ const selectAttendanceTimeseries = db.prepare(`
   GROUP BY e.id
   ORDER BY e.start_at ASC
 `);
-export function getAttendanceTimeseries(wingId, fromMs, toMs) {
-  return selectAttendanceTimeseries.all(wingId, fromMs, toMs).map((r) => {
+export function getAttendanceTimeseries(wingId, fromMs, toMs, { squadronId } = {}) {
+  const rows = squadronId
+    ? selectTimeseriesSqn.all(squadronId, wingId, fromMs, toMs)
+    : selectAttendanceTimeseries.all(wingId, fromMs, toMs);
+  return rows.map((r) => {
     const total = (r.present || 0) + (r.extra_credit || 0) + (r.excused || 0) + (r.ua || 0) + (r.absent || 0);
     const attended = (r.present || 0) + (r.extra_credit || 0);
     return {
@@ -587,8 +648,11 @@ export function getAttendanceTimeseries(wingId, fromMs, toMs) {
   });
 }
 
-export function getPilotPerformance(wingId, fromMs, toMs) {
-  return selectPilotPerformance.all(fromMs, toMs, wingId).map((r) => {
+export function getPilotPerformance(wingId, fromMs, toMs, { squadronId } = {}) {
+  const rows = squadronId
+    ? selectPilotPerformanceSqn.all(fromMs, toMs, wingId, squadronId)
+    : selectPilotPerformance.all(fromMs, toMs, wingId);
+  return rows.map((r) => {
     const tracked = r.events;
     const attended = (r.present || 0) + (r.extra_credit || 0);
     const accounted = attended + (r.excused || 0);
