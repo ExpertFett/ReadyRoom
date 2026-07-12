@@ -192,7 +192,7 @@ export default function App() {
   };
 
   return (
-    <MeContext.Provider value={{ me, reload: loadMe, wings, wingsLoaded, activeWing, reloadWings: loadWings }}>
+    <MeContext.Provider value={{ me, reload: loadMe, wings, wingsLoaded, activeWing, reloadWings: loadWings, switchWing }}>
       <div className={`shell${navOpen ? ' nav-open' : ''}`}>
         <aside className={`sidebar${navOpen ? ' open' : ''}`}>
           <Link to="/" className="brand" aria-label="ReadyRoom" onClick={() => setNavOpen(false)}>

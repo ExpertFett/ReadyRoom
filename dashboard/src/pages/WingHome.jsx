@@ -4,10 +4,14 @@ import { api } from '../api.js';
 import { useMe } from '../App.jsx';
 
 export default function WingHome() {
-  const { me, wings, wingsLoaded, activeWing, reload, reloadWings } = useMe();
+  const { me, wings, wingsLoaded, activeWing, reload, reloadWings, switchWing } = useMe();
   const [wing, setWing] = useState(null);
   const [editingWing, setEditingWing] = useState(false);
+  const [creatingWing, setCreatingWing] = useState(false);
   const navigate = useNavigate();
+  // Who may stand up ANOTHER wing: root admins (unlimited), or anyone not yet
+  // tied to a wing as a member (the backend blocks a second wing otherwise).
+  const canCreateWing = me.root || !me.member;
 
   // Show the full detail (incl. squadrons) for whichever wing is selected in
   // the top-bar switcher — not always wings[0]. Refetch when the selection
@@ -32,8 +36,28 @@ export default function WingHome() {
           <h1>{wing.tag ? `${wing.tag} — ` : ''}{wing.name}</h1>
           {wing.description && <p className="muted">{wing.description}</p>}
         </div>
-        {me.isAdmin && <button className="small" onClick={() => setEditingWing((v) => !v)}>{editingWing ? 'Cancel' : 'Edit wing'}</button>}
+        <div className="row">
+          {canCreateWing && (
+            <button className="small primary" onClick={() => { setCreatingWing((v) => !v); setEditingWing(false); }}>
+              {creatingWing ? 'Cancel' : '+ New wing'}
+            </button>
+          )}
+          {me.isAdmin && <button className="small" onClick={() => { setEditingWing((v) => !v); setCreatingWing(false); }}>{editingWing ? 'Cancel' : 'Edit wing'}</button>}
+        </div>
       </div>
+
+      {creatingWing && (
+        <SetupWing
+          additional
+          onCancel={() => setCreatingWing(false)}
+          onCreated={async (created) => {
+            setCreatingWing(false);
+            await reload();
+            await reloadWings();
+            if (created?.id) switchWing(created.id);   // jump straight into the new wing
+          }}
+        />
+      )}
 
       {editingWing && (
         <EditWing wing={wing} onDone={async () => { setEditingWing(false); await loadWing(); await reloadWings(); }} />
@@ -130,7 +154,10 @@ function Sessions() {
   );
 }
 
-function SetupWing({ onCreated }) {
+// The wing-creation form. Used two ways: the first-run empty state (no wings
+// yet) and, via `additional`, the "+ New wing" panel for root admins who
+// already have wings. onCreated receives the new wing so the caller can switch.
+function SetupWing({ onCreated, onCancel, additional }) {
   const [name, setName] = useState('');
   const [tag, setTag] = useState('');
   const [busy, setBusy] = useState(false);
@@ -139,7 +166,7 @@ function SetupWing({ onCreated }) {
     e.preventDefault();
     if (!name.trim()) return;
     setBusy(true); setErr('');
-    try { await api.post('/api/wings', { name, tag }); await onCreated(); }
+    try { const created = await api.post('/api/wings', { name, tag }); await onCreated(created); }
     catch (e2) {
       setErr(e2.data?.error === 'already_in_wing'
         ? 'You already belong to a wing. Leave it before creating another.'
@@ -148,18 +175,21 @@ function SetupWing({ onCreated }) {
     finally { setBusy(false); }
   };
   return (
-    <div className="card" style={{ maxWidth: 440, margin: '40px auto' }}>
-      <h2 style={{ marginTop: 0 }}>Set up your wing</h2>
+    <div className="card" style={additional ? { marginTop: 14, maxWidth: 460 } : { maxWidth: 440, margin: '40px auto' }}>
+      <h2 style={{ marginTop: 0 }}>{additional ? 'Create a new wing' : 'Set up your wing'}</h2>
       <p className="muted small">
-        The wing is the top of the org. You'll become its admin and can add squadrons,
+        The wing is the top of the org. You'll {additional ? 'own it' : 'become its admin'} and can add squadrons,
         qualifications, and members next.
       </p>
       <form onSubmit={submit}>
         <div className="field"><label>Wing name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Carrier Air Wing One" /></div>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Carrier Air Wing One" autoFocus /></div>
         <div className="field"><label>Tag (optional)</label>
           <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="CVW-1" /></div>
-        <button className="primary" disabled={busy}>{busy ? 'Creating…' : 'Create wing'}</button>
+        <div className="row">
+          <button className="primary" disabled={busy}>{busy ? 'Creating…' : 'Create wing'}</button>
+          {onCancel && <button type="button" className="small" onClick={onCancel}>Cancel</button>}
+        </div>
         {err && <p className="error" style={{ marginTop: 10 }}>{err}</p>}
       </form>
     </div>
