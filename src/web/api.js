@@ -29,7 +29,7 @@ import {
   getDashboard,
 } from '../db/missions.js';
 import {
-  setSquadronKind, setQualTier,
+  setSquadronKind, setSquadronParent, setQualTier,
   getSquadronRoster, getSquadronReadiness,
   attachMember, detachMember, getDetachmentRoster,
 } from '../db/roster.js';
@@ -439,8 +439,17 @@ export function apiRouter() {
       service_branch: str(b.service_branch, 40), calendar_color: b.calendar_color,
       insignia_url: str(b.insignia_url, 500), archived: b.archived,
     });
-    if (b.kind === 'detachment') setSquadronKind(created.id, 'detachment');
-    audit(req, wingId, 'created', 'squadron', created.id, `Created squadron ${created.tag || created.name}`);
+    if (b.kind === 'detachment') {
+      setSquadronKind(created.id, 'detachment');
+      // Optional: link the det to a parent squadron (must be a real squadron in
+      // this wing, not another detachment).
+      const parentId = Number(b.parent_squadron_id) || null;
+      if (parentId) {
+        const parent = getSquadron(parentId);
+        if (parent && parent.wing_id === wingId && parent.kind !== 'detachment') setSquadronParent(created.id, parentId);
+      }
+    }
+    audit(req, wingId, 'created', 'squadron', created.id, `Created ${b.kind === 'detachment' ? 'detachment' : 'squadron'} ${created.tag || created.name}`);
     res.json(getSquadron(created.id));
   });
 
@@ -462,6 +471,7 @@ export function apiRouter() {
       readiness: getSquadronReadiness(sqn.id),  // tier counts
       att90,                                    // { member_id: attendance_rate_% } over last 90d
       det_roster: sqn.kind === 'detachment' ? getDetachmentRoster(sqn.id) : null,
+      parent_tag: sqn.parent_squadron_id ? (() => { const p = getSquadron(sqn.parent_squadron_id); return p ? (p.tag || p.name) : null; })() : null,
     });
   });
 
@@ -476,8 +486,16 @@ export function apiRouter() {
       service_branch: b.service_branch, calendar_color: b.calendar_color,
       insignia_url: b.insignia_url, archived: b.archived,
     });
+    // Re-link a detachment's parent squadron (null unlinks). Same-wing, non-det,
+    // and not itself.
+    if (b.parent_squadron_id !== undefined) {
+      const parentId = Number(b.parent_squadron_id) || null;
+      const parent = parentId ? getSquadron(parentId) : null;
+      const ok = !parentId || (parent && parent.wing_id === sqn.wing_id && parent.kind !== 'detachment' && parent.id !== sqn.id);
+      if (ok) setSquadronParent(sqn.id, parentId);
+    }
     audit(req, sqn.wing_id, 'updated', 'squadron', sqn.id, `Updated squadron ${updated.tag || updated.name}`);
-    res.json(updated);
+    res.json(getSquadron(sqn.id));
   });
 
   router.delete('/squadrons/:id', requireAdmin, (req, res) => {

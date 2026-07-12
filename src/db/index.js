@@ -121,6 +121,7 @@ ensureColumn('squadrons', 'service_branch', 'TEXT');   // Navy | Marine Corps | 
 ensureColumn('squadrons', 'calendar_color', 'TEXT');   // hex, tints this squadron's events on the calendar
 ensureColumn('squadrons', 'insignia_url', 'TEXT');     // squadron patch/logo image
 ensureColumn('squadrons', 'archived', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('squadrons', 'parent_squadron_id', 'INTEGER'); // for a detachment: the squadron it belongs to
 // Wing-level canonical lists (newline/comma-separated) that populate rank &
 // billet suggestion datalists on the member editor. Free-text storage is kept;
 // these are only hints, so no migration of existing values is needed.

@@ -39,7 +39,7 @@ export default function Squadron() {
       <div className="between">
         <div>
           <h1>{sqn.tag ? `${sqn.tag} — ` : ''}{sqn.name}
-            {isDet && <span className="badge commander" style={{ marginLeft: 8 }}>DETACHMENT</span>}</h1>
+            {isDet && <span className="badge commander" style={{ marginLeft: 8 }}>DETACHMENT{sqn.parent_tag ? ` · ${sqn.parent_tag}` : ''}</span>}</h1>
           {sqn.aircraft && <p className="muted">{sqn.aircraft}{sqn.description ? ` · ${sqn.description}` : ''}</p>}
         </div>
         <div className="row">
@@ -78,15 +78,25 @@ function EditSquadron({ sqn, onDone }) {
     name: sqn.name || '', tag: sqn.tag || '', aircraft: sqn.aircraft || '',
     description: sqn.description || '', kind: sqn.kind || 'squadron',
     service_branch: sqn.service_branch || '', calendar_color: sqn.calendar_color || '#4c8bf5',
-    insignia_url: sqn.insignia_url || '',
+    insignia_url: sqn.insignia_url || '', parent_squadron_id: sqn.parent_squadron_id || '',
   });
+  const [siblings, setSiblings] = useState([]);
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  // Parent-squadron options (siblings that aren't detachments) — only needed
+  // when this squadron is a detachment.
+  useEffect(() => {
+    if (f.kind !== 'detachment') return;
+    api.get(`/api/squadrons?wing_id=${sqn.wing_id}`)
+      .then((list) => setSiblings((list || []).filter((s) => s.kind !== 'detachment' && s.id !== sqn.id)))
+      .catch(() => {});
+  }, [f.kind, sqn.wing_id, sqn.id]);
   const save = async (e) => {
     e.preventDefault();
     if (!f.name.trim()) return;
     setBusy(true);
-    try { await api.put(`/api/squadrons/${sqn.id}`, f); onDone(); }
+    // A non-detachment can't have a parent — clear it so switching kind is clean.
+    try { await api.put(`/api/squadrons/${sqn.id}`, { ...f, parent_squadron_id: f.kind === 'detachment' ? f.parent_squadron_id : '' }); onDone(); }
     finally { setBusy(false); }
   };
   return (
@@ -116,6 +126,13 @@ function EditSquadron({ sqn, onDone }) {
           onChange={(e) => setF({ ...f, kind: e.target.checked ? 'detachment' : 'squadron' })} />
         This is a detachment
       </label>
+      {f.kind === 'detachment' && (
+        <div className="field"><label>Parent squadron <span className="muted small">the squadron this det belongs to</span></label>
+          <select value={f.parent_squadron_id || ''} onChange={set('parent_squadron_id')}>
+            <option value="">(none — wing-level det)</option>
+            {siblings.map((s) => <option key={s.id} value={s.id}>{s.tag || s.name}</option>)}
+          </select></div>
+      )}
       <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
     </form>
   );

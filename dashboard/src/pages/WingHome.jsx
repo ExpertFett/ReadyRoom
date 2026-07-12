@@ -232,15 +232,19 @@ function EditWing({ wing, onDone }) {
 
 function Squadrons({ wing, isAdmin, reload }) {
   const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ name: '', tag: '', aircraft: '', kind: 'squadron' });
+  const [f, setF] = useState({ name: '', tag: '', aircraft: '', kind: 'squadron', parent_squadron_id: '' });
+  // Squadrons a detachment can belong to (real squadrons, not other dets).
+  const parentOptions = wing.squadrons.filter((s) => s.kind !== 'detachment');
   const add = async (e) => {
     e.preventDefault();
     if (!f.name.trim()) return;
     await api.post('/api/squadrons', { wing_id: wing.id, ...f });
-    setF({ name: '', tag: '', aircraft: '', kind: 'squadron' });
+    setF({ name: '', tag: '', aircraft: '', kind: 'squadron', parent_squadron_id: '' });
     setAdding(false);
     reload();
   };
+  // tag/name of a squadron by id, for the "det of …" label on cards
+  const sqnLabel = (id) => { const p = wing.squadrons.find((s) => s.id === id); return p ? (p.tag || p.name) : null; };
   return (
     <section>
       <div className="between"><h2>Squadrons</h2>
@@ -257,6 +261,15 @@ function Squadrons({ wing, isAdmin, reload }) {
             <input type="checkbox" style={{ width: 'auto' }} checked={f.kind === 'detachment'} onChange={(e) => setF({ ...f, kind: e.target.checked ? 'detachment' : 'squadron' })} />
             This is a detachment (cross-attached pilots, e.g. a C-130 det)
           </label>
+          {f.kind === 'detachment' && (
+            <div className="field"><label>Parent squadron <span className="muted small">the squadron this det belongs to</span></label>
+              <select value={f.parent_squadron_id} onChange={(e) => setF({ ...f, parent_squadron_id: e.target.value })}>
+                <option value="">(none — wing-level det)</option>
+                {parentOptions.map((s) => <option key={s.id} value={s.id}>{s.tag || s.name}</option>)}
+              </select>
+              {!parentOptions.length && <span className="muted small">Add a squadron first to link this det to one.</span>}
+            </div>
+          )}
           <button className="primary">Add {f.kind === 'detachment' ? 'detachment' : 'squadron'}</button>
         </form>
       )}
@@ -271,7 +284,9 @@ function Squadrons({ wing, isAdmin, reload }) {
               <div>{s.tag ? s.name : ''}</div>
               {s.aircraft && <div className="small muted">{s.aircraft}</div>}
               <div className="count">{s.member_count} {s.member_count === 1 ? 'member' : 'members'}</div>
-              {s.kind === 'detachment' && <div className="det-flag">DETACHMENT</div>}
+              {s.kind === 'detachment' && (
+                <div className="det-flag">DETACHMENT{s.parent_squadron_id && sqnLabel(s.parent_squadron_id) ? ` · ${sqnLabel(s.parent_squadron_id)}` : ''}</div>
+              )}
             </Link>
           ))}
         </div>

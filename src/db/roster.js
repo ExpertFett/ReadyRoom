@@ -25,6 +25,11 @@ const setKindStmt = db.prepare('UPDATE squadrons SET kind = ? WHERE id = ?');
 export function setSquadronKind(id, kind) {
   setKindStmt.run(kind === 'detachment' ? 'detachment' : 'squadron', id);
 }
+// Link a detachment to its parent squadron (null to unlink).
+const setParentStmt = db.prepare('UPDATE squadrons SET parent_squadron_id = ? WHERE id = ?');
+export function setSquadronParent(id, parentId) {
+  setParentStmt.run(parentId ? Number(parentId) : null, id);
+}
 
 // --- qualification tier flags --------------------------------------------
 const setQualTierStmt = db.prepare(
