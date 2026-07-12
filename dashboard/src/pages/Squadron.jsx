@@ -68,7 +68,114 @@ export default function Squadron() {
       ) : (
         <SquadronRoster sqn={sqn} />
       )}
+
+      {me.isAdmin && <ModexPools squadronId={sqn.id} />}
     </div>
+  );
+}
+
+// Side-number (modex) ranges per subdivision — configured PER SQUADRON, since
+// each squadron usually runs a different pool. Powers the "next free" hint.
+const MODEX_SUBDIVISIONS = [
+  { key: 'main', label: 'Main' },
+  { key: 'ready_reserve', label: 'Ready Reserve' },
+  { key: 'frs', label: 'FRS' },
+  { key: 'candidate', label: 'Candidate' },
+];
+
+function ModexPools({ squadronId }) {
+  const [pools, setPools] = useState(null);
+  const [draft, setDraft] = useState({}); // subdivision -> { range_start, range_end, notes }
+  const [avail, setAvail] = useState({}); // subdivision -> { next, count }
+  const [status, setStatus] = useState('');
+
+  const load = async () => {
+    const list = await api.get(`/api/squadrons/${squadronId}/modex-pools`);
+    setPools(list);
+    const byKey = {};
+    for (const p of list) byKey[p.subdivision] = { range_start: p.range_start, range_end: p.range_end, notes: p.notes || '' };
+    setDraft(byKey);
+    const a = {};
+    await Promise.all(list.map(async (p) => {
+      try {
+        const r = await api.get(`/api/squadrons/${squadronId}/modex-pools/${p.subdivision}/available`);
+        a[p.subdivision] = { next: r.next, count: r.available?.length || 0 };
+      } catch { /* ignore */ }
+    }));
+    setAvail(a);
+  };
+  useEffect(() => { load(); }, [squadronId]);
+
+  const setField = (sub, field, val) =>
+    setDraft((d) => ({ ...d, [sub]: { ...(d[sub] || {}), [field]: val } }));
+
+  const save = async (sub) => {
+    const d = draft[sub] || {};
+    if (d.range_start === '' || d.range_end === '' || d.range_start == null || d.range_end == null) {
+      setStatus('Set both a start and end number.');
+      return;
+    }
+    setStatus('Saving…');
+    try {
+      await api.put(`/api/squadrons/${squadronId}/modex-pools/${sub}`, {
+        range_start: Number(d.range_start), range_end: Number(d.range_end), notes: d.notes || null,
+      });
+      setStatus('Saved ✓');
+      load();
+    } catch (e) { setStatus(`Save failed: ${e.message}`); }
+  };
+
+  const clear = async (sub) => {
+    if (!confirm(`Remove the ${sub} modex pool?`)) return;
+    await api.del(`/api/squadrons/${squadronId}/modex-pools/${sub}`);
+    setStatus('Removed');
+    load();
+  };
+
+  if (pools === null) return null;
+
+  return (
+    <section>
+      <h2>Modex pools <span className="muted small" style={{ fontWeight: 400 }}>· this squadron</span></h2>
+      <div className="card">
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Side-number ranges for <b>this squadron</b>, per subdivision. The next free number
+          in the range is suggested when you add a pilot here.
+        </p>
+        <table>
+          <thead>
+            <tr><th>Subdivision</th><th>Start</th><th>End</th><th>Notes</th><th>Next free</th><th></th></tr>
+          </thead>
+          <tbody>
+            {MODEX_SUBDIVISIONS.map(({ key, label }) => {
+              const d = draft[key] || {};
+              const defined = pools.some((p) => p.subdivision === key);
+              const a = avail[key];
+              return (
+                <tr key={key}>
+                  <td><b>{label}</b></td>
+                  <td><input type="number" style={{ width: 80 }} value={d.range_start ?? ''}
+                    onChange={(e) => setField(key, 'range_start', e.target.value)} placeholder="400" /></td>
+                  <td><input type="number" style={{ width: 80 }} value={d.range_end ?? ''}
+                    onChange={(e) => setField(key, 'range_end', e.target.value)} placeholder="419" /></td>
+                  <td><input style={{ width: 160 }} value={d.notes ?? ''}
+                    onChange={(e) => setField(key, 'notes', e.target.value)} placeholder="optional" /></td>
+                  <td className="small">{a?.next != null ? <b>#{a.next}</b> : '—'}
+                    {a?.count != null && <span className="muted"> ({a.count} free)</span>}</td>
+                  <td>
+                    <div className="row" style={{ gap: 4 }}>
+                      <button className="small primary" onClick={() => save(key)}>Save</button>
+                      {defined && <button className="small danger" onClick={() => clear(key)}>✕</button>}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {status && <p className="muted small" style={{ marginBottom: 0 }}>{status}</p>}
+      </div>
+    </section>
   );
 }
 

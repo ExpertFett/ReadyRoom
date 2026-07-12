@@ -1875,37 +1875,39 @@ export function apiRouter() {
     res.json({ ok });
   });
 
-  // ----- Phase 3.1: modex pools -----
-  router.get('/wings/:id/modex-pools', (req, res) => {
-    const wing = getWing(Number(req.params.id));
-    if (!wing) return res.status(404).json({ error: 'not_found' });
-    res.json(getModexPools(wing.id));
+  // ----- Phase 3.1: modex pools (per SQUADRON) -----
+  router.get('/squadrons/:id/modex-pools', (req, res) => {
+    const sqn = getSquadron(Number(req.params.id));
+    if (!sqn) return res.status(404).json({ error: 'not_found' });
+    res.json(getModexPools(sqn.id));
   });
-  router.put('/wings/:id/modex-pools/:subdivision', requireAdmin, (req, res) => {
-    const wing = getWing(Number(req.params.id));
-    if (!wing) return res.status(404).json({ error: 'not_found' });
+  router.put('/squadrons/:id/modex-pools/:subdivision', requireAdmin, (req, res) => {
+    const sqn = getSquadron(Number(req.params.id));
+    if (!sqn) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, sqn.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
     try {
-      const p = setModexPool(wing.id, req.params.subdivision, req.body || {});
-      audit(req, wing.id, 'updated', 'modex_pool', wing.id,
-        `Set ${req.params.subdivision} modex range ${p.range_start}-${p.range_end}`);
+      const p = setModexPool(sqn.id, req.params.subdivision, req.body || {});
+      audit(req, sqn.wing_id, 'updated', 'modex_pool', sqn.id,
+        `Set ${sqn.tag || sqn.name} ${req.params.subdivision} modex range ${p.range_start}-${p.range_end}`);
       res.json(p);
     } catch (err) {
       res.status(400).json({ error: err.message || 'bad_input' });
     }
   });
-  router.delete('/wings/:id/modex-pools/:subdivision', requireAdmin, (req, res) => {
-    const wing = getWing(Number(req.params.id));
-    if (!wing) return res.status(404).json({ error: 'not_found' });
-    const ok = deleteModexPool(wing.id, req.params.subdivision) > 0;
-    if (ok) audit(req, wing.id, 'deleted', 'modex_pool', wing.id,
-      `Removed ${req.params.subdivision} modex pool`);
+  router.delete('/squadrons/:id/modex-pools/:subdivision', requireAdmin, (req, res) => {
+    const sqn = getSquadron(Number(req.params.id));
+    if (!sqn) return res.status(404).json({ error: 'not_found' });
+    if (!assertWingAccess(req, sqn.wing_id)) return res.status(403).json({ error: 'forbidden_wing' });
+    const ok = deleteModexPool(sqn.id, req.params.subdivision) > 0;
+    if (ok) audit(req, sqn.wing_id, 'deleted', 'modex_pool', sqn.id,
+      `Removed ${sqn.tag || sqn.name} ${req.params.subdivision} modex pool`);
     res.json({ ok });
   });
-  // Next-available hint — used inline on Personnel + Squadron pages.
-  router.get('/wings/:id/modex-pools/:subdivision/available', (req, res) => {
-    const wing = getWing(Number(req.params.id));
-    if (!wing) return res.status(404).json({ error: 'not_found' });
-    res.json(getAvailableModex(wing.id, req.params.subdivision, 20));
+  // Next-available hint for a squadron+subdivision.
+  router.get('/squadrons/:id/modex-pools/:subdivision/available', (req, res) => {
+    const sqn = getSquadron(Number(req.params.id));
+    if (!sqn) return res.status(404).json({ error: 'not_found' });
+    res.json(getAvailableModex(sqn.id, req.params.subdivision, 20));
   });
 
   // ----- demo wing spawner (root-admin only) -----

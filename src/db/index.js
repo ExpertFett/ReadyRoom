@@ -213,14 +213,36 @@ db.exec(`
 // them just don't get the hint.
 db.exec(`
   CREATE TABLE IF NOT EXISTS modex_pools (
-    wing_id     INTEGER NOT NULL REFERENCES wings(id) ON DELETE CASCADE,
+    squadron_id INTEGER NOT NULL REFERENCES squadrons(id) ON DELETE CASCADE,
     subdivision TEXT NOT NULL,
     range_start INTEGER NOT NULL,
     range_end   INTEGER NOT NULL,
     notes       TEXT,
-    PRIMARY KEY (wing_id, subdivision)
+    PRIMARY KEY (squadron_id, subdivision)
   );
 `);
+// Migrate the older WING-level modex_pools (PK wing_id, subdivision) to the
+// squadron-level shape — each squadron usually runs a different pool. We fan
+// each old wing pool out to EVERY squadron in that wing as a starting point so
+// no configured range is lost; admins then adjust per squadron. Idempotent.
+(() => {
+  const cols = db.prepare('PRAGMA table_info(modex_pools)').all();
+  if (cols.some((c) => c.name === 'squadron_id')) return;   // already squadron-level / fresh
+  const old = db.prepare('SELECT * FROM modex_pools').all();
+  db.exec('ALTER TABLE modex_pools RENAME TO modex_pools_wing_old');
+  db.exec(`
+    CREATE TABLE modex_pools (
+      squadron_id INTEGER NOT NULL REFERENCES squadrons(id) ON DELETE CASCADE,
+      subdivision TEXT NOT NULL, range_start INTEGER NOT NULL, range_end INTEGER NOT NULL, notes TEXT,
+      PRIMARY KEY (squadron_id, subdivision)
+    );
+  `);
+  const ins = db.prepare('INSERT OR IGNORE INTO modex_pools (squadron_id, subdivision, range_start, range_end, notes) VALUES (?, ?, ?, ?, ?)');
+  const sqns = db.prepare('SELECT id FROM squadrons WHERE wing_id = ?');
+  for (const r of old) for (const s of sqns.all(r.wing_id)) ins.run(s.id, r.subdivision, r.range_start, r.range_end, r.notes);
+  db.exec('DROP TABLE modex_pools_wing_old');
+  console.log(`[migrate] modex_pools → squadron-level (${old.length} wing pool(s) fanned out)`);
+})();
 
 // --- Epic 7: access levels (capability tags) ---
 // Comma-separated tags. Standard set: JTAC, GM, ATC, LSO, IP, AWACS, FAC.
@@ -687,49 +709,52 @@ export function deleteQualTrack(id) {
 // ---------------------------------------------------------------------------
 // Modex pools (Phase 3.1)
 // ---------------------------------------------------------------------------
-const selectPoolsStmt = db.prepare('SELECT * FROM modex_pools WHERE wing_id = ? ORDER BY range_start ASC');
+// Modex pools are per SQUADRON (each squadron usually runs a different pool),
+// keyed (squadron_id, subdivision). "Used" numbers are counted within the same
+// squadron+subdivision.
+const selectPoolsStmt = db.prepare('SELECT * FROM modex_pools WHERE squadron_id = ? ORDER BY range_start ASC');
 const upsertPoolStmt = db.prepare(`
-  INSERT INTO modex_pools (wing_id, subdivision, range_start, range_end, notes)
+  INSERT INTO modex_pools (squadron_id, subdivision, range_start, range_end, notes)
   VALUES (?, ?, ?, ?, ?)
-  ON CONFLICT(wing_id, subdivision) DO UPDATE SET
+  ON CONFLICT(squadron_id, subdivision) DO UPDATE SET
     range_start = excluded.range_start,
     range_end = excluded.range_end,
     notes = excluded.notes
 `);
-const deletePoolStmt = db.prepare('DELETE FROM modex_pools WHERE wing_id = ? AND subdivision = ?');
+const deletePoolStmt = db.prepare('DELETE FROM modex_pools WHERE squadron_id = ? AND subdivision = ?');
 const selectUsedModexStmt = db.prepare(
   `SELECT modex FROM members
-   WHERE wing_id = ? AND subdivision = ? AND modex IS NOT NULL AND status != 'retired'`
+   WHERE squadron_id = ? AND subdivision = ? AND modex IS NOT NULL AND status != 'retired'`
 );
 
-export function getModexPools(wingId) {
-  return selectPoolsStmt.all(wingId);
+export function getModexPools(squadronId) {
+  return selectPoolsStmt.all(squadronId);
 }
 
-export function setModexPool(wingId, subdivision, { range_start, range_end, notes }) {
+export function setModexPool(squadronId, subdivision, { range_start, range_end, notes }) {
   if (!Number.isFinite(Number(range_start)) || !Number.isFinite(Number(range_end))) {
     throw new Error('bad_range');
   }
   upsertPoolStmt.run(
-    wingId,
+    squadronId,
     String(subdivision),
     Math.floor(Number(range_start)),
     Math.floor(Number(range_end)),
     notes ? String(notes).slice(0, 200) : null,
   );
-  return selectPoolsStmt.all(wingId).find((p) => p.subdivision === subdivision);
+  return selectPoolsStmt.all(squadronId).find((p) => p.subdivision === subdivision);
 }
 
-export function deleteModexPool(wingId, subdivision) {
-  return deletePoolStmt.run(wingId, subdivision).changes;
+export function deleteModexPool(squadronId, subdivision) {
+  return deletePoolStmt.run(squadronId, subdivision).changes;
 }
 
-// Returns the available modex numbers in this subdivision's pool, capped at
-// `limit`. Used by the Personnel/Squadron page header hint.
-export function getAvailableModex(wingId, subdivision, limit = 20) {
-  const pool = selectPoolsStmt.all(wingId).find((p) => p.subdivision === subdivision);
+// Returns the available modex numbers in this squadron+subdivision's pool,
+// capped at `limit`. Used by the Squadron page's modex-pools hint.
+export function getAvailableModex(squadronId, subdivision, limit = 20) {
+  const pool = selectPoolsStmt.all(squadronId).find((p) => p.subdivision === subdivision);
   if (!pool) return { pool: null, available: [], next: null };
-  const used = new Set(selectUsedModexStmt.all(wingId, subdivision)
+  const used = new Set(selectUsedModexStmt.all(squadronId, subdivision)
     .map((r) => String(r.modex).trim())
     .filter(Boolean));
   const available = [];
