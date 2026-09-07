@@ -290,7 +290,7 @@ export function recordMissionResult(event, participants, summary) {
       (modex && norm(s.modex) === modex)
     ));
     if (hit) memberId = hit.member_id;
-    if (!memberId && (p.pilot || p.name)) memberId = resolveAlias(p.pilot || p.name);
+    if (!memberId && (p.pilot || p.name)) memberId = resolveAlias(event.wing_id, p.pilot || p.name);
     const label = p.callsign || p.pilot || p.name || '?';
     if (memberId) {
       try { markAttendance(event.id, memberId, 'present', { recordedBy: 'opt-aar' }); marked.push(label); }

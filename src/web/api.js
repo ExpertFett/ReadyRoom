@@ -726,7 +726,7 @@ export function apiRouter() {
     if (!canEditMember(req, member)) return res.status(403).json({ error: 'forbidden' });
     try {
       const alias = addAlias(member.id, req.body?.alias);
-      const relinked = relinkSortiesForAlias(alias.alias, member.id);
+      const relinked = relinkSortiesForAlias(alias.alias, member.id, member.wing_id);
       audit(req, member.wing_id, 'added', 'alias', member.id,
         `Added pilot alias "${alias.alias}" to ${member.callsign || member.name}${relinked ? ` (relinked ${relinked} sortie(s))` : ''}`);
       res.json({ ...alias, relinked });

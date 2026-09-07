@@ -58,11 +58,13 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS pilot_aliases (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     member_id  INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    wing_id    INTEGER,
     alias      TEXT NOT NULL,
     created_at INTEGER NOT NULL
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_aliases_alias ON pilot_aliases (alias);
   CREATE INDEX IF NOT EXISTS idx_aliases_member ON pilot_aliases (member_id);
+  -- NOTE: uniqueness is PER WING (idx_aliases_wing_alias), created in the
+  -- migration below — an in-game name is only unique within a community.
 
   CREATE TABLE IF NOT EXISTS quals (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,6 +253,15 @@ db.exec(`
 // Comma-separated tags. Standard set: JTAC, GM, ATC, LSO, IP, AWACS, FAC.
 // Independent of app_role (member|commander|admin) which is the auth tier.
 ensureColumn('members', 'capabilities', 'TEXT');
+
+// pilot_aliases: uniqueness was GLOBAL, so an in-game name claimed by ANY
+// community blocked every other one (cross-tenant collision). Scope it per
+// wing: backfill wing_id from the member, drop the global index, add a
+// (wing_id, alias) unique index. Idempotent.
+ensureColumn('pilot_aliases', 'wing_id', 'INTEGER');
+db.exec('UPDATE pilot_aliases SET wing_id = (SELECT m.wing_id FROM members m WHERE m.id = pilot_aliases.member_id) WHERE wing_id IS NULL');
+db.exec('DROP INDEX IF EXISTS idx_aliases_alias');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_aliases_wing_alias ON pilot_aliases (wing_id, alias)');
 
 const safeParse = (s, fallback) => {
   try {
@@ -627,24 +638,27 @@ export function deleteMember(id) {
 // Pilot aliases (identity bridge)
 // ---------------------------------------------------------------------------
 const insertAlias = db.prepare(
-  'INSERT INTO pilot_aliases (member_id, alias, created_at) VALUES (?, ?, ?)'
+  'INSERT INTO pilot_aliases (member_id, wing_id, alias, created_at) VALUES (?, ?, ?, ?)'
 );
 const selectAliasesByMember = db.prepare(
   'SELECT * FROM pilot_aliases WHERE member_id = ? ORDER BY alias ASC'
 );
 const selectAlias = db.prepare('SELECT * FROM pilot_aliases WHERE id = ?');
-const selectAliasByName = db.prepare('SELECT * FROM pilot_aliases WHERE alias = ?');
+// Aliases are unique PER WING, so every lookup is wing-scoped.
+const selectAliasInWing = db.prepare('SELECT * FROM pilot_aliases WHERE wing_id = ? AND alias = ?');
 const deleteAliasStmt = db.prepare('DELETE FROM pilot_aliases WHERE id = ?');
 
 export function addAlias(memberId, alias) {
   const clean = String(alias || '').trim();
   if (!clean) throw new Error('empty_alias');
-  const existing = selectAliasByName.get(clean);
+  const m = getMember(memberId);
+  if (!m) throw new Error('bad_member');
+  const existing = selectAliasInWing.get(m.wing_id, clean);   // collision only within the wing
   if (existing) {
     if (existing.member_id === memberId) return existing;
     throw new Error('alias_taken');
   }
-  const info = insertAlias.run(memberId, clean, Date.now());
+  const info = insertAlias.run(memberId, m.wing_id, clean, Date.now());
   return selectAlias.get(Number(info.lastInsertRowid));
 }
 export function getAliases(memberId) {
@@ -653,8 +667,8 @@ export function getAliases(memberId) {
 export function getAlias(id) {
   return selectAlias.get(id) || null;
 }
-export function resolveAlias(alias) {
-  const row = selectAliasByName.get(String(alias || '').trim());
+export function resolveAlias(wingId, alias) {
+  const row = selectAliasInWing.get(wingId, String(alias || '').trim());
   return row ? row.member_id : null;
 }
 export function deleteAlias(id) {
@@ -1037,13 +1051,13 @@ const selectUnmatchedAliases = db.prepare(`
   GROUP BY alias ORDER BY last_seen DESC LIMIT 200
 `);
 const relinkSortiesStmt = db.prepare(
-  'UPDATE sorties SET member_id = ? WHERE alias = ? AND member_id IS NULL'
+  'UPDATE sorties SET member_id = ? WHERE alias = ? AND member_id IS NULL AND wing_id = ?'
 );
 
 export function addSortie(wingId, { alias, airframe, seconds, source, started_at }) {
   const cleanAlias = String(alias || '').trim();
   if (!cleanAlias) throw new Error('empty_alias');
-  const memberId = resolveAlias(cleanAlias);
+  const memberId = resolveAlias(wingId, cleanAlias);
   const info = insertSortie.run(
     wingId,
     memberId,
@@ -1066,8 +1080,8 @@ export function getUnmatchedAliases(wingId) {
   return selectUnmatchedAliases.all(wingId);
 }
 // When an alias is newly claimed, back-fill any prior unmatched sorties.
-export function relinkSortiesForAlias(alias, memberId) {
-  return relinkSortiesStmt.run(memberId, String(alias).trim()).changes;
+export function relinkSortiesForAlias(alias, memberId, wingId) {
+  return relinkSortiesStmt.run(memberId, String(alias).trim(), wingId).changes;
 }
 
 export { safeParse };
