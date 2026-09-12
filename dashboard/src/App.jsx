@@ -20,7 +20,7 @@ import Qualifications from './pages/Qualifications.jsx';
 import Training from './pages/Training.jsx';
 import Docs from './pages/Docs.jsx';
 import AuditLog from './pages/AuditLog.jsx';
-import Claim, { ClaimLogin } from './pages/Claim.jsx';
+import Claim, { ClaimLogin, LoginGate } from './pages/Claim.jsx';
 import { DiscordButton } from './components/DiscordButton.jsx';
 import { AppFooter } from './components/AppFooter.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
@@ -203,11 +203,18 @@ export default function App() {
     return <div className="login-wrap"><div className="muted">Loading…</div></div>;
   }
   if (!me) {
-    // A logged-out visitor on a claim link gets a dedicated sign-in screen
-    // (carries the return path + warns about in-app browsers), not the
-    // generic marketing landing.
-    const claim = window.location.pathname.match(/^\/claim\/([A-Za-z0-9]{8,64})/);
+    // Logged-out routing. Anyone who arrived on a REAL destination — a claim
+    // link, or (far more common) an /events/:id or /missions/:id deep link
+    // tapped from a Discord ops post — gets the focused, in-app-browser-aware
+    // sign-in gate that carries them back to that page after login. Only the
+    // bare landing ("/") shows the marketing page. Without this, a pilot who
+    // taps an event link in Discord lands on a raw login that loops forever in
+    // Discord's in-app browser.
+    const path = window.location.pathname;
+    const claim = path.match(/^\/claim\/([A-Za-z0-9]{8,64})/);
     if (claim) return <ClaimLogin token={claim[1]} />;
+    // Same-origin app path only (regex mirrors the server's ?next= guard).
+    if (/^\/[A-Za-z0-9][A-Za-z0-9/_-]*$/.test(path)) return <LoginGate next={path} />;
     return <><Landing /><DiscordButton /></>;
   }
 

@@ -3,26 +3,30 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
 
-// Logged-out entry for a claim link. One clear sign-in action that carries the
-// claim destination server-side (?next=), plus a warning when opened inside an
-// in-app webview (Discord/FB/IG), where the OAuth cookie round-trip silently
-// breaks — the #1 cause of "I authorize and the screen just sits there."
-export function ClaimLogin({ token }) {
+// Focused, in-app-browser-aware sign-in screen for ANY logged-out visitor who
+// arrived on a real destination — a /claim/<token> link OR an /events/:id or
+// /missions/:id deep link tapped from a Discord ops post. One clear sign-in
+// action that carries the destination through login server-side (?next=), plus
+// a warning when opened inside an in-app webview (Discord/FB/IG), where the
+// OAuth cookie round-trip silently breaks — the #1 cause of "I authorize and
+// the screen just sits there / it keeps asking me to verify."
+export function LoginGate({ next, title = 'Sign in to ReadyRoom', blurb = 'Log in with Discord to continue.' }) {
   const inApp = typeof navigator !== 'undefined'
     && /(Discord|FBAN|FBAV|FB_IAB|Instagram|Line|GSA)/i.test(navigator.userAgent);
   const err = new URLSearchParams(window.location.search).get('error');
-  const url = `${window.location.origin}/claim/${token}`;
+  // The full URL the pilot should open in a real browser = origin + destination.
+  const url = `${window.location.origin}${next || '/'}`;
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }
     catch { /* clipboard blocked — user can long-press the text */ }
   };
-  const loginHref = `/auth/login?next=${encodeURIComponent(`/claim/${token}`)}`;
+  const loginHref = `/auth/login${next ? `?next=${encodeURIComponent(next)}` : ''}`;
   return (
     <div className="login-wrap">
       <div className="card" style={{ width: 'min(440px, 92vw)', textAlign: 'center' }}>
-        <h1 style={{ marginTop: 0 }}>Claim your pilot</h1>
-        <p className="muted">Sign in with Discord to link your account to your squadron's roster.</p>
+        <h1 style={{ marginTop: 0 }}>{title}</h1>
+        <p className="muted">{blurb}</p>
         {err && (
           <p className="error">Sign-in didn't finish{err === 'invalid_state' ? " — usually the in-app browser blocking it." : '.'} Try again below.</p>
         )}
@@ -39,6 +43,17 @@ export function ClaimLogin({ token }) {
         </a>
       </div>
     </div>
+  );
+}
+
+// Claim-link entry: the roster-linking flavor of the sign-in gate.
+export function ClaimLogin({ token }) {
+  return (
+    <LoginGate
+      next={`/claim/${token}`}
+      title="Claim your pilot"
+      blurb="Sign in with Discord to link your account to your squadron's roster."
+    />
   );
 }
 

@@ -14,11 +14,15 @@ authRouter.get('/login', (req, res) => {
   }
   const state = crypto.randomBytes(16).toString('hex');
   req.session.oauthState = state;
-  // Remember a safe post-login destination (a /claim/<token> deep link) in the
-  // SESSION, so it survives the OAuth round-trip even if the browser drops
-  // localStorage (e.g. an in-app webview handing off to the system browser).
+  // Remember a safe post-login destination in the SESSION so it survives the
+  // OAuth round-trip even if the browser drops localStorage (e.g. an in-app
+  // webview handing off to the system browser). Accepts any same-ORIGIN app
+  // path — a /claim/<token> link OR an /events/:id or /missions/:id deep link
+  // tapped from a Discord ops post — so pilots land back where they started.
+  // The regex requires a single leading "/" followed by an alphanumeric, which
+  // rejects scheme URLs and "//host" protocol-relative forms → no open redirect.
   const next = String(req.query.next || '');
-  req.session.postAuth = /^\/claim\/[A-Za-z0-9]{8,64}$/.test(next) ? next : null;
+  req.session.postAuth = next.length <= 200 && /^\/[A-Za-z0-9][A-Za-z0-9/_-]*$/.test(next) ? next : null;
   res.redirect(buildAuthUrl(state));
 });
 
