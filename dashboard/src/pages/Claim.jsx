@@ -3,6 +3,45 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
 
+// Logged-out entry for a claim link. One clear sign-in action that carries the
+// claim destination server-side (?next=), plus a warning when opened inside an
+// in-app webview (Discord/FB/IG), where the OAuth cookie round-trip silently
+// breaks — the #1 cause of "I authorize and the screen just sits there."
+export function ClaimLogin({ token }) {
+  const inApp = typeof navigator !== 'undefined'
+    && /(Discord|FBAN|FBAV|FB_IAB|Instagram|Line|GSA)/i.test(navigator.userAgent);
+  const err = new URLSearchParams(window.location.search).get('error');
+  const url = `${window.location.origin}/claim/${token}`;
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { /* clipboard blocked — user can long-press the text */ }
+  };
+  const loginHref = `/auth/login?next=${encodeURIComponent(`/claim/${token}`)}`;
+  return (
+    <div className="login-wrap">
+      <div className="card" style={{ width: 'min(440px, 92vw)', textAlign: 'center' }}>
+        <h1 style={{ marginTop: 0 }}>Claim your pilot</h1>
+        <p className="muted">Sign in with Discord to link your account to your squadron's roster.</p>
+        {err && (
+          <p className="error">Sign-in didn't finish{err === 'invalid_state' ? " — usually the in-app browser blocking it." : '.'} Try again below.</p>
+        )}
+        {inApp && (
+          <div className="callout" style={{ textAlign: 'left' }}>
+            <p style={{ marginTop: 0 }}><b>You're in an in-app browser</b> (opened from inside Discord), which blocks Discord sign-in. Open this link in your real browser — Safari, Chrome, or Edge:</p>
+            <code style={{ wordBreak: 'break-all', display: 'block', margin: '6px 0' }}>{url}</code>
+            <button className="small primary" onClick={copy}>{copied ? 'Copied ✓' : 'Copy link'}</button>
+            <p className="small muted" style={{ marginBottom: 0 }}>Tip: tap the ⋯ menu (usually top-right) → <b>Open in browser</b>.</p>
+          </div>
+        )}
+        <a className="btn-discord" href={loginHref} style={{ marginTop: 12, display: 'inline-flex' }}>
+          {inApp ? 'Try signing in anyway' : 'Log In with Discord'}
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // Self-serve pilot linking: a pilot opens a wing's claim link, logs in, and
 // picks their own (unlinked) roster member to link their Discord account.
 export default function Claim() {

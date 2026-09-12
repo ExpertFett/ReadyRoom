@@ -14,15 +14,24 @@ authRouter.get('/login', (req, res) => {
   }
   const state = crypto.randomBytes(16).toString('hex');
   req.session.oauthState = state;
+  // Remember a safe post-login destination (a /claim/<token> deep link) in the
+  // SESSION, so it survives the OAuth round-trip even if the browser drops
+  // localStorage (e.g. an in-app webview handing off to the system browser).
+  const next = String(req.query.next || '');
+  req.session.postAuth = /^\/claim\/[A-Za-z0-9]{8,64}$/.test(next) ? next : null;
   res.redirect(buildAuthUrl(state));
 });
 
 authRouter.get('/callback', async (req, res) => {
   const { code, state } = req.query;
   if (!code || !state || state !== req.session.oauthState) {
-    return res.redirect('/?error=invalid_state');
+    // Preserve the claim destination across a retry so the error screen can relink.
+    const q = req.session.postAuth ? `&next=${encodeURIComponent(req.session.postAuth)}` : '';
+    return res.redirect(`/?error=invalid_state${q}`);
   }
   delete req.session.oauthState;
+  const dest = req.session.postAuth || '/';
+  delete req.session.postAuth;
   try {
     const token = await exchangeCode(String(code));
     const user = await fetchDiscordUser(token.access_token);
@@ -33,7 +42,7 @@ authRouter.get('/callback', async (req, res) => {
         ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
         : null,
     };
-    res.redirect('/');
+    res.redirect(dest);
   } catch (err) {
     console.error('OAuth callback error:', err.message);
     res.redirect('/?error=oauth_failed');

@@ -20,7 +20,7 @@ import Qualifications from './pages/Qualifications.jsx';
 import Training from './pages/Training.jsx';
 import Docs from './pages/Docs.jsx';
 import AuditLog from './pages/AuditLog.jsx';
-import Claim from './pages/Claim.jsx';
+import Claim, { ClaimLogin } from './pages/Claim.jsx';
 import { DiscordButton } from './components/DiscordButton.jsx';
 import { AppFooter } from './components/AppFooter.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
@@ -141,18 +141,8 @@ export default function App() {
   useEffect(() => { loadMe(); }, [loadMe]);
   useEffect(() => { if (me) loadWings(); }, [me, loadWings]);
 
-  // Preserve a /claim/… deep link across the Discord login round-trip: stash it
-  // while logged out, and jump back to it once logged in.
-  useEffect(() => {
-    if (me === undefined) return;
-    const path = window.location.pathname;
-    if (!me) {
-      if (path.startsWith('/claim/')) localStorage.setItem('readyroom.postLogin', path);
-    } else {
-      const dest = localStorage.getItem('readyroom.postLogin');
-      if (dest && dest !== path) { localStorage.removeItem('readyroom.postLogin'); navigate(dest); }
-    }
-  }, [me, navigate]);
+  // (The /claim/… deep link now survives login via a server-side ?next= on
+  // /auth/login — see ClaimLogin + auth.js — so no localStorage hop is needed.)
 
   // Global Ctrl/Cmd-K opens the command palette.
   useEffect(() => {
@@ -212,7 +202,14 @@ export default function App() {
   if (me === undefined) {
     return <div className="login-wrap"><div className="muted">Loading…</div></div>;
   }
-  if (!me) return <><Landing /><DiscordButton /></>;
+  if (!me) {
+    // A logged-out visitor on a claim link gets a dedicated sign-in screen
+    // (carries the return path + warns about in-app browsers), not the
+    // generic marketing landing.
+    const claim = window.location.pathname.match(/^\/claim\/([A-Za-z0-9]{8,64})/);
+    if (claim) return <ClaimLogin token={claim[1]} />;
+    return <><Landing /><DiscordButton /></>;
+  }
 
   // Role + capability badges shown in the top bar so the user always sees
   // which hats they're wearing. ADMIN/COMMANDER come from app_role; LSO/JTAC/
