@@ -156,6 +156,25 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Global safety net for silent load failures. Most pages gate on
+  // `if (!data) return "Loading…"`, so a data fetch that rejects without its own
+  // catch (a request dropped during a redeploy, an expired session) would spin
+  // forever with no explanation. Those uncaught rejections bubble to here; show
+  // a dismissible banner with a reload so a pilot is never stranded on a spinner
+  // that will never resolve. (Pages with their own catch never reach this.)
+  const [loadFailed, setLoadFailed] = useState(false);
+  useEffect(() => {
+    const onRej = (e) => {
+      const r = e?.reason;
+      if (r && (typeof r.status === 'number' || r instanceof Error)) {
+        e.preventDefault();
+        if (r.status !== 401) setLoadFailed(true); // 401 = auth, handled by the login flow
+      }
+    };
+    window.addEventListener('unhandledrejection', onRej);
+    return () => window.removeEventListener('unhandledrejection', onRej);
+  }, []);
+
   // The wings to actually offer in the switcher. A platform/root admin can
   // technically receive every tenant's wing from /api/wings; curate that down
   // to wings they OWN (created_by) or are a roster member of, so they don't
@@ -324,6 +343,17 @@ export default function App() {
             </div>
           </header>
           <main className="container">
+            {loadFailed && (
+              <div className="card" role="alert" style={{ borderColor: 'var(--danger, #c0392b)', marginBottom: 12 }}>
+                <div className="between" style={{ gap: 10, flexWrap: 'wrap' }}>
+                  <span>⚠️ Something didn't load — the connection may have dropped (e.g. during an update).</span>
+                  <span style={{ flex: '0 0 auto' }}>
+                    <button className="small primary" onClick={() => window.location.reload()}>Reload</button>{' '}
+                    <button className="small" onClick={() => setLoadFailed(false)}>Dismiss</button>
+                  </span>
+                </div>
+              </div>
+            )}
             <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/wing" element={<WingHome />} />

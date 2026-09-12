@@ -116,13 +116,26 @@ export default function EventDetail() {
   const { me } = useMe();
   const navigate = useNavigate();
   const [event, setEvent] = useState(null);
+  const [err, setErr] = useState(null);
   const [editing, setEditing] = useState(false);
   const [reposting, setReposting] = useState(false);
   const [repostMsg, setRepostMsg] = useState('');
 
-  const load = async () => setEvent(await api.get(`/api/events/${id}`));
-  useEffect(() => { load(); }, [id]);
+  // Catch so a failed/dropped request (e.g. a redeploy killing the connection)
+  // shows an error + Retry instead of hanging on "Loading…" forever.
+  const load = async () => {
+    try { setErr(null); setEvent(await api.get(`/api/events/${id}`)); }
+    catch (e) { setErr(e); }
+  };
+  useEffect(() => { setEvent(null); setErr(null); load(); }, [id]);
 
+  if (err) return (
+    <div className="empty">
+      Couldn't load this event{err.status ? ` (${err.status})` : ''}.
+      {err.status === 404 ? ' It may have been deleted.' : err.status === 403 ? " It belongs to a wing you're not in." : ''}
+      <div style={{ marginTop: 10 }}><button className="small" onClick={load}>Retry</button> <Link to="/events">← All events</Link></div>
+    </div>
+  );
   if (!event) return <p className="muted">Loading…</p>;
 
   const mark = async (memberId, status) => {
