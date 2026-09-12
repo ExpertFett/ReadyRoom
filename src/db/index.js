@@ -393,11 +393,16 @@ export function getWingByClaimToken(token) {
 }
 // Members on this wing's roster that no one has claimed yet (no Discord link),
 // grouped for the claim picker. Retired members are excluded.
+// Discord IDs are 17-20 digit snowflakes. Anything else stored in
+// discord_user_id (e.g. a mangled username someone typed by hand) isn't a real
+// link — treat such members as still CLAIMABLE so pilots can self-heal.
+const VALID_SNOWFLAKE = /^\d{17,20}$/;
 const selectUnclaimedMembersStmt = db.prepare(`
   SELECT m.id, m.callsign, m.name, m.modex, m.subdivision, m.squadron_id,
          sq.tag AS sqn_tag, sq.name AS sqn_name
   FROM members m LEFT JOIN squadrons sq ON sq.id = m.squadron_id
-  WHERE m.wing_id = ? AND m.discord_user_id IS NULL AND m.status != 'retired'
+  WHERE m.wing_id = ? AND m.status != 'retired'
+    AND (m.discord_user_id IS NULL OR length(m.discord_user_id) NOT BETWEEN 17 AND 20)
   ORDER BY sq.name ASC, m.callsign ASC, m.name ASC
 `);
 export function getUnclaimedMembers(wingId) {
@@ -411,7 +416,8 @@ export function claimMember(wingId, memberId, discordUserId) {
   if (getMemberByDiscord(discordUserId)) return 'already_linked';   // one pilot per Discord id
   const m = getMember(memberId);
   if (!m || m.wing_id !== wingId) return 'bad_member';
-  if (m.discord_user_id) return 'taken';
+  // Only a REAL (snowflake) link blocks a claim; a mangled id can be overwritten.
+  if (m.discord_user_id && VALID_SNOWFLAKE.test(m.discord_user_id)) return 'taken';
   db.prepare('UPDATE members SET discord_user_id = ? WHERE id = ?').run(String(discordUserId), memberId);
   return getMember(memberId);
 }

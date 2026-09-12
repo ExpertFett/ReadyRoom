@@ -153,7 +153,11 @@ function Profile({ m, canEdit, isAdmin, onSaved }) {
             <select value={f.status} onChange={set('status')}>{STATUS.map((s) => <option key={s}>{s}</option>)}</select></div>}
           {isAdmin && <div className="field"><label>App role</label>
             <select value={f.app_role} onChange={set('app_role')}>{['member', 'commander', 'admin'].map((s) => <option key={s}>{s}</option>)}</select></div>}
-          {isAdmin && <div className="field"><label>Discord user ID</label><input value={f.discord_user_id || ''} onChange={set('discord_user_id')} placeholder="link a Discord account" /></div>}
+          {isAdmin && <div className="field"><label>Discord user ID <span className="muted small">numeric ID, not username</span></label>
+            <input value={f.discord_user_id || ''} onChange={set('discord_user_id')} placeholder="e.g. 218418420132456448" />
+            {f.discord_user_id && !/^\d{17,20}$/.test(String(f.discord_user_id).replace(/[^0-9]/g, '')) && (
+              <span className="error small">That doesn't look like a Discord User ID (17–20 digits). In Discord: User Settings → Advanced → Developer Mode, then right-click the user → Copy User ID. Or just share the claim link and let them self-link.</span>
+            )}</div>}
         </div>
         {isAdmin && <CapabilitiesField value={f.capabilities || ''} onChange={(v) => setF({ ...f, capabilities: v })} />}
         <button className="primary" disabled={busy}>Save</button>

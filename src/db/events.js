@@ -365,7 +365,7 @@ const selectEventsBySquadronInRange = db.prepare(`
   SELECT events.*, sq.tag AS squadron_tag, ${SEATS_FILLED} FROM events
   LEFT JOIN squadrons sq ON sq.id = events.squadron_id
   WHERE events.wing_id = ? AND events.start_at >= ? AND events.start_at < ?
-    AND (events.squadron_id = ? OR events.multi_squadron = 1)
+    AND (events.squadron_id = ? OR events.squadron_id IS NULL OR events.multi_squadron = 1)
   ORDER BY events.start_at ASC
 `);
 
