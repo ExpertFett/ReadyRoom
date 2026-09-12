@@ -627,6 +627,28 @@ export function getMemberByDiscord(discordId) {
   if (!discordId) return null;
   return selectMemberByDiscord.get(String(discordId)) || null;
 }
+
+// Re-home a member (and its Discord link) into another wing. Used by the root
+// Link Doctor to consolidate a squadron whose pilots and missions ended up in
+// separate wings. squadron_id is reset (squadrons are wing-specific — the old
+// one doesn't exist in the target wing) to a chosen target squadron or null;
+// the caller can re-slot them after. discord_user_id is globally unique, so the
+// link simply travels with the row. Reversible (move back). Best on a fresh
+// setup; historical mission signups/quals stay attached to the old wing's rows.
+const moveMemberStmt = db.prepare('UPDATE members SET wing_id = ?, squadron_id = ?, updated_at = ? WHERE id = ?');
+export function moveMemberToWing(memberId, wingId, squadronId = null) {
+  const m = selectMember.get(Number(memberId));
+  if (!m) return null;
+  if (!getWing(Number(wingId))) return null;
+  // Only accept a target squadron that actually belongs to the target wing.
+  let sqnId = null;
+  if (squadronId != null) {
+    const sq = selectSquadron.get(Number(squadronId));
+    sqnId = sq && sq.wing_id === Number(wingId) ? sq.id : null;
+  }
+  moveMemberStmt.run(Number(wingId), sqnId, Date.now(), Number(memberId));
+  return getMember(Number(memberId));
+}
 export function updateMember(id, d) {
   const m = normMember(d);
   updateMemberStmt.run(

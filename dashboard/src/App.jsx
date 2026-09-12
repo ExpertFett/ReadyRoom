@@ -20,6 +20,7 @@ import Qualifications from './pages/Qualifications.jsx';
 import Training from './pages/Training.jsx';
 import Docs from './pages/Docs.jsx';
 import AuditLog from './pages/AuditLog.jsx';
+import LinkDoctor from './pages/LinkDoctor.jsx';
 import Claim, { ClaimLogin, LoginGate } from './pages/Claim.jsx';
 import { DiscordButton } from './components/DiscordButton.jsx';
 import { AppFooter } from './components/AppFooter.jsx';
@@ -69,7 +70,7 @@ function LinkLed() {
 
 // Sidebar nav: grouped "ops console" sections. Closing the drawer on click
 // only matters on mobile (the sidebar is a toggled overlay there).
-function SideNav({ onNavigate }) {
+function SideNav({ onNavigate, root }) {
   const item = (to, icon, label, end = false) => (
     <NavLink to={to} end={end} onClick={onNavigate}><Icon name={icon} /><span>{label}</span></NavLink>
   );
@@ -93,6 +94,12 @@ function SideNav({ onNavigate }) {
         {item('/metrics', 'metrics', 'Metrics')}
         {item('/wing', 'wing', 'Wing')}
       </div>
+      {root && (
+        <div className="nav-group">
+          <div className="nav-kicker">Platform</div>
+          {item('/link-doctor', 'wing', 'Link Doctor')}
+        </div>
+      )}
     </nav>
   );
 }
@@ -275,7 +282,7 @@ export default function App() {
           <Link to="/" className="brand" aria-label="ReadyRoom" onClick={() => setNavOpen(false)}>
             <img src="/logo.png" alt="ReadyRoom" className="brand-logo" />
           </Link>
-          {activeWing && <SideNav onNavigate={() => setNavOpen(false)} />}
+          {activeWing && <SideNav onNavigate={() => setNavOpen(false)} root={me.root} />}
           <div className="sidebar-foot">
             <LinkLed />
             <span className="who" title={me.user.username}>{me.user.username}</span>
@@ -371,6 +378,7 @@ export default function App() {
           <Route path="/training" element={<Training />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/audit-log" element={<AuditLog />} />
+          <Route path="/link-doctor" element={<LinkDoctor />} />
               <Route path="/claim/:token" element={<Claim />} />
               {/* Standalone routes kept for back-compat / direct linking */}
               <Route path="/my-quals" element={<MyQuals />} />

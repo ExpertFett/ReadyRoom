@@ -9,7 +9,7 @@ import {
   setWingDigestEnabled,
   getWingClaimToken, regenerateWingClaimToken, getWingByClaimToken, getUnclaimedMembers, claimMember,
   createSquadron, getSquadrons, getSquadron, updateSquadron, deleteSquadron,
-  createMember, getMember, getMemberByDiscord, getMembersByWing, getMembersBySquadron, updateMember, deleteMember,
+  createMember, getMember, getMemberByDiscord, getMembersByWing, getMembersBySquadron, updateMember, deleteMember, moveMemberToWing,
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
   createQual, getQuals, getQual, deleteQual, updateQual, reorderQual, bulkAssignQuals,
   getModexPools, setModexPool, deleteModexPool, getAvailableModex,
@@ -1987,6 +1987,47 @@ export function apiRouter() {
     // Not audited — the audit log is wing-scoped and this is an app-wide action.
     console.log(`[sessions] ${actor.user?.username || actor.user?.id} revoked ${revoked} session(s) for user ${userId}`);
     res.json({ ok: true, revoked });
+  });
+
+  // ----- Link Doctor (root-only): diagnose + fix the "roster in one wing,
+  // missions/events in another" split that 403s pilots on event pages. -----
+  const SNOWFLAKE = /^\d{17,20}$/;
+  router.get('/admin/link-report', (req, res) => {
+    if (!getActor(req).root) return res.status(403).json({ error: 'root_only' });
+    const FAR = 8.64e15; // covers all valid JS dates for a full event count
+    const wings = getWings().map((w) => {
+      const members = getMembersByWing(w.id);
+      const squadrons = getSquadrons(w.id);
+      const sqName = new Map(squadrons.map((s) => [s.id, s.tag || s.name]));
+      return {
+        id: w.id, name: w.name, tag: w.tag,
+        opsBotWired: !!(w.ops_bot_url && w.ops_bot_token),
+        missions: listMissions(w.id, {}).length,
+        events: getEventsInRange(w.id, -FAR, FAR).length,
+        squadrons: squadrons.map((s) => ({ id: s.id, name: s.tag || s.name })),
+        members: members.map((m) => ({
+          id: m.id, callsign: m.callsign, name: m.name,
+          squadron: m.squadron_id ? (sqName.get(m.squadron_id) || `#${m.squadron_id}`) : null,
+          discord_user_id: m.discord_user_id || null,
+          linked: !!(m.discord_user_id && SNOWFLAKE.test(m.discord_user_id)),
+        })),
+      };
+    });
+    res.json({ wings });
+  });
+
+  // Move a member (with their Discord link) into another wing — the fix lever
+  // for consolidating a split squadron. Root-only; reversible.
+  router.post('/admin/move-member', (req, res) => {
+    if (!getActor(req).root) return res.status(403).json({ error: 'root_only' });
+    const b = req.body || {};
+    const memberId = Number(b.member_id);
+    const wingId = Number(b.target_wing_id);
+    if (!memberId || !wingId) return res.status(400).json({ error: 'missing_ids' });
+    const moved = moveMemberToWing(memberId, wingId, b.target_squadron_id != null ? Number(b.target_squadron_id) : null);
+    if (!moved) return res.status(400).json({ error: 'bad_member_or_wing' });
+    audit(req, wingId, 'moved', 'member', memberId, `Moved member #${memberId} (${moved.callsign || moved.name || 'pilot'}) to wing #${wingId}`);
+    res.json({ ok: true, member: moved });
   });
 
   // ----- audit log (admin-only) -----
