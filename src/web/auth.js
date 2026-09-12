@@ -25,9 +25,12 @@ authRouter.get('/login', (req, res) => {
 authRouter.get('/callback', async (req, res) => {
   const { code, state } = req.query;
   if (!code || !state || state !== req.session.oauthState) {
-    // Preserve the claim destination across a retry so the error screen can relink.
-    const q = req.session.postAuth ? `&next=${encodeURIComponent(req.session.postAuth)}` : '';
-    return res.redirect(`/?error=invalid_state${q}`);
+    // Land the error back ON the claim screen (postAuth was validated to a
+    // /claim/<token> path in /login), so ClaimLogin re-renders with its error
+    // notice + in-app-browser guidance instead of dumping the pilot on the
+    // generic landing page.
+    const claimDest = req.session.postAuth;
+    return res.redirect(claimDest ? `${claimDest}?error=invalid_state` : '/?error=invalid_state');
   }
   delete req.session.oauthState;
   const dest = req.session.postAuth || '/';
