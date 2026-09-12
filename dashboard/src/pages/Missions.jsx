@@ -12,6 +12,7 @@ export default function Missions() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [missions, setMissions] = useState(null);
+  const [err, setErr] = useState(null);
   const [aircraftOpts, setAircraftOpts] = useState([]);
   const [filters, setFilters] = useState({ status: '', type: '', aircraft: '', search: '', sort: 'date_desc' });
   const [creating, setCreating] = useState(params.get('new') === '1');
@@ -24,7 +25,9 @@ export default function Missions() {
     if (filters.aircraft) q.set('aircraft', filters.aircraft);
     if (filters.search) q.set('search', filters.search);
     if (filters.sort) q.set('sort', filters.sort);
-    setMissions(await api.get(`/api/missions?${q}`));
+    // Catch so a failed request shows an error rather than hanging on "Loading…".
+    try { setErr(null); setMissions(await api.get(`/api/missions?${q}`)); }
+    catch (e) { setErr(e); }
   };
   useEffect(() => { load(); }, [activeWing, filters]);
 
@@ -83,7 +86,9 @@ export default function Missions() {
         </div>
       </div>
 
-      {missions === null ? <p className="muted">Loading…</p> : !missions.length ? (
+      {err ? (
+        <div className="empty">Couldn't load missions{err.status ? ` (${err.status})` : ''}. <button className="small" onClick={load}>Retry</button></div>
+      ) : missions === null ? <p className="muted">Loading…</p> : !missions.length ? (
         <div className="empty">No missions match.</div>
       ) : (
         <div className="card" style={{ padding: 0, marginTop: 14 }}>

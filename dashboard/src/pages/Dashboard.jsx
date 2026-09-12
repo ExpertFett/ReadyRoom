@@ -9,6 +9,7 @@ const fmt = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: 'medium',
 export default function Dashboard() {
   const { me, activeWing, activeSquadron } = useMe();
   const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
   const [stats, setStats] = useState(null);
   const [events, setEvents] = useState([]);
   const [myEvents, setMyEvents] = useState([]);
@@ -16,7 +17,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!activeWing) return;
-    api.get(`/api/dashboard?wing_id=${activeWing.id}`).then(setData);
+    setErr(null);
+    // Catch the main fetch — without this a failure leaves `data` null forever
+    // and the page hangs on "Loading…" with no clue why.
+    api.get(`/api/dashboard?wing_id=${activeWing.id}`).then(setData).catch(setErr);
     api.get(`/api/wings/${activeWing.id}/dashboard-stats`).then(setStats).catch(() => setStats(null));
     const now = Date.now();
     api.get(`/api/wings/${activeWing.id}/events?from=${now}&to=${now + 30 * 86400000}${sqQ}`)
@@ -35,6 +39,13 @@ export default function Dashboard() {
       </div>
     );
   }
+  if (err) return (
+    <div className="empty">
+      Couldn't load the dashboard{err.status ? ` (${err.status})` : ''}.
+      {err.status === 403 ? " You may not have access to this wing." : ''}
+      <div style={{ marginTop: 10 }}><button className="small" onClick={() => window.location.reload()}>Retry</button></div>
+    </div>
+  );
   if (!data) return <p className="muted">Loading…</p>;
 
   return (

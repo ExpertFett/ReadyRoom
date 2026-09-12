@@ -20,17 +20,30 @@ export default function MissionDetail() {
   const toast = useToast();
   const navigate = useNavigate();
   const [m, setM] = useState(null);
+  const [err, setErr] = useState(null);
   const [squadrons, setSquadrons] = useState([]);
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const load = async () => {
-    const mission = await api.get(`/api/missions/${id}`);
-    setM(mission);
-    setSquadrons(await api.get(`/api/squadrons?wing_id=${mission.wing_id}`));
+    try {
+      const mission = await api.get(`/api/missions/${id}`);
+      setM(mission);
+      setSquadrons(await api.get(`/api/squadrons?wing_id=${mission.wing_id}`));
+    } catch (e) {
+      // Surface the failure instead of hanging on "Loading…" forever.
+      setErr(e);
+    }
   };
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { setErr(null); load(); }, [id]);
 
+  if (err) return (
+    <div className="empty">
+      Couldn't load this mission{err.status ? ` (${err.status})` : ''}.
+      {err.status === 404 ? ' It may have been deleted.' : err.status === 403 ? " It belongs to a wing you're not in." : ''}
+      <div style={{ marginTop: 10 }}><Link to="/missions">← Back to missions</Link></div>
+    </div>
+  );
   if (!m) return <p className="muted">Loading…</p>;
   const isAdmin = me.isAdmin;
 
