@@ -44,18 +44,36 @@ export default function LinkDoctor() {
     } finally { setBusy(0); }
   };
 
-  const del = async (w) => {
-    if (!confirm(`Delete wing “${w.tag || w.name}” (#${w.id})?\n\nThis permanently removes the wing and everything in it (squadrons, missions, events, sorties). This cannot be undone.`)) return;
+  const doDelete = async (w, force) => {
     setBusy(`w${w.id}`);
     try {
-      await api.post('/api/admin/delete-wing', { wing_id: w.id });
+      await api.post('/api/admin/delete-wing', { wing_id: w.id, force });
       await load();
     } catch (e) {
       if (e.data?.error === 'has_linked_pilots') {
-        alert(`Can't delete — ${e.data.count} real (linked) pilot${e.data.count === 1 ? ' is' : 's are'} still in this wing. Move them out first with the Move buttons, then delete the empty shell.`);
-      } else {
-        alert(`Delete failed${e.status ? ` (${e.status})` : ''}.`);
+        setBusy(0);
+        // Owner override: the guard is a safety net, not a wall. Confirm hard.
+        if (confirm(`⚠️ “${w.tag || w.name}” still has ${e.data.count} REAL linked pilot${e.data.count === 1 ? '' : 's'}. Deleting removes their linked accounts too.\n\nSafer: cancel and MOVE them to another wing first.\n\nDelete anyway?`)) {
+          return doDelete(w, true);
+        }
+        return;
       }
+      alert(`Delete failed${e.status ? ` (${e.status})` : ''}.`);
+    } finally { setBusy(0); }
+  };
+  const del = (w) => {
+    if (!confirm(`Delete wing “${w.tag || w.name}” (#${w.id})?\n\nPermanently removes the wing and everything in it (squadrons, missions, events, sorties). Cannot be undone.`)) return;
+    doDelete(w, false);
+  };
+
+  const delMember = async (m) => {
+    if (!confirm(`Remove ${m.callsign || m.name || 'this member'} from the roster?\n\nDeletes this roster entry${m.linked ? ' and unlinks their Discord account' : ''}. Cannot be undone.`)) return;
+    setBusy(`m${m.id}`);
+    try {
+      await api.post('/api/admin/delete-member', { member_id: m.id });
+      await load();
+    } catch (e) {
+      alert(`Remove failed${e.status ? ` (${e.status})` : ''}.`);
     } finally { setBusy(0); }
   };
 
@@ -80,20 +98,23 @@ export default function LinkDoctor() {
           <section key={w.id} className="card" style={{ marginBottom: 14, ...(isReal ? { borderColor: 'var(--accent, #4c8bf5)' } : {}) }}>
             <div className="between" style={{ flexWrap: 'wrap', gap: 8 }}>
               <h2 style={{ margin: 0 }}>
-                {w.tag || w.name} <span className="muted small">#{w.id}</span>
+                {w.name}{w.tag && w.tag !== w.name ? <span className="muted small"> ({w.tag})</span> : null} <span className="muted small">wing #{w.id}</span>
                 {isReal && <span className="badge active" style={{ marginLeft: 8 }}>owns the ops post</span>}
                 {w.opsBotWired && <span className="badge cap" style={{ marginLeft: 6 }}>Ops Bot wired</span>}
               </h2>
               <div className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span>{w.members.length} member{w.members.length === 1 ? '' : 's'} · {linked} linked · {w.missions} mission{w.missions === 1 ? '' : 's'} · {w.events} event{w.events === 1 ? '' : 's'}</span>
-                {linked === 0
-                  ? <button className="small" style={{ color: 'var(--danger, #c0392b)', borderColor: 'var(--danger, #c0392b)' }} disabled={busy === `w${w.id}`} onClick={() => del(w)}>{busy === `w${w.id}` ? 'Deleting…' : 'Delete wing'}</button>
-                  : <span title="Move its linked pilots out before deleting">🔒 has linked pilots</span>}
+                <button className="small" style={{ color: 'var(--danger, #c0392b)', borderColor: 'var(--danger, #c0392b)' }} disabled={busy === `w${w.id}`} onClick={() => del(w)}>{busy === `w${w.id}` ? 'Deleting…' : 'Delete wing'}</button>
               </div>
             </div>
+            {w.squadrons.length > 0 && (
+              <div className="small muted" style={{ marginTop: 4 }}>
+                Squadrons in this wing: {w.squadrons.map((s) => s.name).join(', ')}
+              </div>
+            )}
 
             {!w.members.length ? (
-              <div className="empty" style={{ marginTop: 10 }}>No members. {w.missions + w.events === 0 ? 'Empty wing — safe to delete from Wing settings.' : ''}</div>
+              <div className="empty" style={{ marginTop: 10 }}>No members. {w.missions + w.events === 0 ? 'Empty wing — use “Delete wing” above.' : ''}</div>
             ) : (
               <div style={{ overflowX: 'auto', marginTop: 10 }}>
                 <table>
@@ -112,9 +133,12 @@ export default function LinkDoctor() {
                               : <span className="muted">— none —</span>}
                         </td>
                         <td>
-                          {targets.length > 0 && (
-                            <MoveControl member={m} targets={targets} busy={busy === m.id} onMove={move} />
-                          )}
+                          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {targets.length > 0 && (
+                              <MoveControl member={m} targets={targets} busy={busy === m.id} onMove={move} />
+                            )}
+                            <button className="small" title="Remove this roster entry" style={{ color: 'var(--danger, #c0392b)' }} disabled={busy === `m${m.id}`} onClick={() => delMember(m)}>{busy === `m${m.id}` ? '…' : 'Remove'}</button>
+                          </span>
                         </td>
                       </tr>
                     ))}

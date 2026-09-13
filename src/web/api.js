@@ -2049,6 +2049,20 @@ export function apiRouter() {
     res.json({ ok });
   });
 
+  // Delete a single roster member — owner cleanup for stray/duplicate entries
+  // from the Link Doctor. Root-only. (Cascades the member's quals/signups.)
+  router.post('/admin/delete-member', (req, res) => {
+    const actor = getActor(req);
+    if (!actor.root) return res.status(403).json({ error: 'root_only' });
+    const memberId = Number(req.body?.member_id);
+    if (!memberId) return res.status(400).json({ error: 'missing_id' });
+    const m = getMember(memberId);
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    const ok = deleteMember(memberId) > 0;
+    console.log(`[link-doctor] ${actor.user?.username || actor.user?.id} deleted member #${memberId} (${m.callsign || m.name || 'pilot'}) from wing #${m.wing_id}`);
+    res.json({ ok });
+  });
+
   // ----- audit log (admin-only) -----
   router.get('/wings/:id/audit-log', requireAdmin, (req, res) => {
     const wing = getWing(Number(req.params.id));
