@@ -2030,6 +2030,25 @@ export function apiRouter() {
     res.json({ ok: true, member: moved });
   });
 
+  // Delete a leftover demo/empty wing. Root-only, and GUARDED: refuses to delete
+  // a wing that still holds real linked pilots (a valid Discord snowflake) unless
+  // forced — so you can't accidentally nuke someone's account. Move the real
+  // pilots out first (move-member), then the empty shell deletes cleanly (FK
+  // ON DELETE CASCADE removes its squadrons/quals/missions/events/etc.).
+  router.post('/admin/delete-wing', (req, res) => {
+    const actor = getActor(req);
+    if (!actor.root) return res.status(403).json({ error: 'root_only' });
+    const wingId = Number(req.body?.wing_id);
+    const force = !!req.body?.force;
+    const wing = getWing(wingId);
+    if (!wing) return res.status(404).json({ error: 'not_found' });
+    const linked = getMembersByWing(wingId).filter((m) => m.discord_user_id && SNOWFLAKE.test(m.discord_user_id));
+    if (linked.length && !force) return res.status(409).json({ error: 'has_linked_pilots', count: linked.length });
+    const ok = deleteWing(wingId) > 0;
+    console.log(`[link-doctor] ${actor.user?.username || actor.user?.id} deleted wing #${wingId} (${wing.tag || wing.name})${force ? ' [forced]' : ''}`);
+    res.json({ ok });
+  });
+
   // ----- audit log (admin-only) -----
   router.get('/wings/:id/audit-log', requireAdmin, (req, res) => {
     const wing = getWing(Number(req.params.id));

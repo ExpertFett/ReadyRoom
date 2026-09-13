@@ -44,6 +44,21 @@ export default function LinkDoctor() {
     } finally { setBusy(0); }
   };
 
+  const del = async (w) => {
+    if (!confirm(`Delete wing “${w.tag || w.name}” (#${w.id})?\n\nThis permanently removes the wing and everything in it (squadrons, missions, events, sorties). This cannot be undone.`)) return;
+    setBusy(`w${w.id}`);
+    try {
+      await api.post('/api/admin/delete-wing', { wing_id: w.id });
+      await load();
+    } catch (e) {
+      if (e.data?.error === 'has_linked_pilots') {
+        alert(`Can't delete — ${e.data.count} real (linked) pilot${e.data.count === 1 ? ' is' : 's are'} still in this wing. Move them out first with the Move buttons, then delete the empty shell.`);
+      } else {
+        alert(`Delete failed${e.status ? ` (${e.status})` : ''}.`);
+      }
+    } finally { setBusy(0); }
+  };
+
   return (
     <div>
       <h1>Link Doctor</h1>
@@ -69,8 +84,11 @@ export default function LinkDoctor() {
                 {isReal && <span className="badge active" style={{ marginLeft: 8 }}>owns the ops post</span>}
                 {w.opsBotWired && <span className="badge cap" style={{ marginLeft: 6 }}>Ops Bot wired</span>}
               </h2>
-              <div className="small muted">
-                {w.members.length} member{w.members.length === 1 ? '' : 's'} · {linked} linked · {w.missions} mission{w.missions === 1 ? '' : 's'} · {w.events} event{w.events === 1 ? '' : 's'}
+              <div className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span>{w.members.length} member{w.members.length === 1 ? '' : 's'} · {linked} linked · {w.missions} mission{w.missions === 1 ? '' : 's'} · {w.events} event{w.events === 1 ? '' : 's'}</span>
+                {linked === 0
+                  ? <button className="small" style={{ color: 'var(--danger, #c0392b)', borderColor: 'var(--danger, #c0392b)' }} disabled={busy === `w${w.id}`} onClick={() => del(w)}>{busy === `w${w.id}` ? 'Deleting…' : 'Delete wing'}</button>
+                  : <span title="Move its linked pilots out before deleting">🔒 has linked pilots</span>}
               </div>
             </div>
 
