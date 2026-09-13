@@ -72,6 +72,7 @@ export default function WingHome() {
       {me.isAdmin && <Ingest wingId={wing.id} />}
       {me.isAdmin && <DiscordPublish wing={wing} />}
       {me.root && <Sessions />}
+      {me.isAdmin && <ExportCsv wing={wing} />}
       {me.isAdmin && (
         <DangerZone
           wing={wing}
@@ -79,6 +80,27 @@ export default function WingHome() {
         />
       )}
     </div>
+  );
+}
+
+// One-click CSV pulls for a group owner: roster, qualifications, and all-time
+// attendance. Reuses the admin export endpoints (requireAdmin — a group owner
+// passes). The Metrics page has the same exports with a date-range picker; this
+// is the discoverable copy on the group's own management page.
+function ExportCsv({ wing }) {
+  const to = Date.now();
+  return (
+    <section style={{ marginTop: 28 }}>
+      <h2>Export CSV</h2>
+      <div className="card">
+        <p className="muted small" style={{ marginTop: 0 }}>Download this group's data — opens in Excel / Google Sheets.</p>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <a className="small button" href={`/api/wings/${wing.id}/export/roster.csv`} download>Roster</a>
+          <a className="small button" href={`/api/wings/${wing.id}/export/quals.csv`} download>Qualifications</a>
+          <a className="small button" href={`/api/wings/${wing.id}/export/attendance.csv?from=0&to=${to}`} download>Attendance (all-time)</a>
+        </div>
+      </div>
+    </section>
   );
 }
 
