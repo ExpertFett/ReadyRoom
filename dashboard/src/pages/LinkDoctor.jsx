@@ -2,11 +2,15 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useMe } from '../App.jsx';
 
-// Root-only diagnostic + fix for the "roster in one wing, missions/events in
-// another" split that 403s pilots on event pages. Shows every wing with its
-// member/mission/event counts and each pilot's Discord-link status, and lets a
-// root admin move a mis-placed pilot into the wing that actually owns the
-// missions/events. See the /api/admin/link-report + /admin/move-member endpoints.
+// Root-only, platform-wide roster console. ReadyRoom is MULTI-TENANT: every
+// wing (group) is an independent org with its own squadrons, missions, events
+// and ops posts — there is no canonical "real" wing. This lists every group,
+// its squadrons, and where each pilot's Discord account is linked, and lets the
+// owner move a pilot to the correct group, remove a stray entry, or delete a
+// leftover/demo group. A pilot only sees missions/events in the group their
+// account belongs to, so a pilot linked to the wrong group 403s — the fix is to
+// move them to the group they actually belong to (the owner decides which; the
+// tool never guesses). See /api/admin/link-report + move-member/delete-*.
 export default function LinkDoctor() {
   const { me } = useMe();
   const [data, setData] = useState(null);
@@ -24,12 +28,12 @@ export default function LinkDoctor() {
   if (!data) return <p className="muted">Loading…</p>;
 
   const wings = data.wings || [];
-  // Heuristic: the wing that owns the ops post is where pilots must live.
-  const realWing = [...wings].sort((a, b) =>
-    (b.opsBotWired - a.opsBotWired) || ((b.missions + b.events) - (a.missions + a.events)) || (b.members - a.members)
-  )[0];
-  // Pilots sitting in a wing other than the "real" one — the mis-placed ones.
-  const strays = wings.filter((w) => realWing && w.id !== realWing.id).reduce((n, w) => n + w.members.length, 0);
+  const totalMembers = wings.reduce((n, w) => n + w.members.length, 0);
+  // The one universally-correct flag in a multi-group world: a "Discord ID" that
+  // isn't a numeric snowflake (a hand-typed username) — that pilot can't log in
+  // or be matched, in ANY group. Everything else (who belongs where) is the
+  // owner's call, not something to auto-detect.
+  const badIds = wings.reduce((n, w) => n + w.members.filter((m) => m.discord_user_id && !m.linked).length, 0);
 
   const move = async (memberId, targetWingId, targetSquadronId) => {
     setBusy(memberId);
@@ -80,26 +84,23 @@ export default function LinkDoctor() {
   return (
     <div>
       <h1>Link Doctor</h1>
-      <p className="muted">Every wing, its content, and where each pilot's Discord account is linked. A pilot can only see missions/events in the wing their account belongs to.</p>
+      <p className="muted">Every group (wing), its squadrons, and where each pilot's Discord account is linked. These are independent groups — a pilot only sees missions/events in the group their account belongs to, so a pilot linked to the wrong group will 403. Move, remove, or delete as needed.</p>
 
-      {wings.length > 1 && realWing && strays > 0 && (
-        <div className="card" role="alert" style={{ borderColor: 'var(--warn, #f0b429)', marginBottom: 14 }}>
-          <b>Split detected.</b> The wing that owns your missions/events is <b>{realWing.tag || realWing.name}</b> (#{realWing.id}).
-          {' '}<b>{strays}</b> pilot{strays === 1 ? ' is' : 's are'} linked in <i>other</i> wing{wings.length > 2 ? 's' : ''} and will 403 on event pages.
-          Move them into <b>{realWing.tag || realWing.name}</b> with the buttons below, then delete the empty leftover wing(s).
-        </div>
-      )}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <b>{wings.length}</b> group{wings.length === 1 ? '' : 's'} · <b>{totalMembers}</b> pilot{totalMembers === 1 ? '' : 's'} across all of them.
+        {badIds > 0 && (
+          <span className="error"> {badIds} {badIds === 1 ? 'has' : 'have'} an invalid Discord ID (a hand-typed username, not a numeric ID) — they can't log in or be matched anywhere. Fix those below (⚠️ rows).</span>
+        )}
+      </div>
 
       {wings.map((w) => {
-        const isReal = realWing && w.id === realWing.id;
         const linked = w.members.filter((m) => m.linked).length;
         const targets = wings.filter((t) => t.id !== w.id);
         return (
-          <section key={w.id} className="card" style={{ marginBottom: 14, ...(isReal ? { borderColor: 'var(--accent, #4c8bf5)' } : {}) }}>
+          <section key={w.id} className="card" style={{ marginBottom: 14 }}>
             <div className="between" style={{ flexWrap: 'wrap', gap: 8 }}>
               <h2 style={{ margin: 0 }}>
-                {w.name}{w.tag && w.tag !== w.name ? <span className="muted small"> ({w.tag})</span> : null} <span className="muted small">wing #{w.id}</span>
-                {isReal && <span className="badge active" style={{ marginLeft: 8 }}>owns the ops post</span>}
+                {w.name}{w.tag && w.tag !== w.name ? <span className="muted small"> ({w.tag})</span> : null} <span className="muted small">group #{w.id}</span>
                 {w.opsBotWired && <span className="badge cap" style={{ marginLeft: 6 }}>Ops Bot wired</span>}
               </h2>
               <div className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
