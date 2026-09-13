@@ -71,10 +71,19 @@ export default function Claim() {
     .catch((e) => setErr(e.data?.error === 'bad_token' ? 'This claim link is invalid or expired — ask your squadron admin for a fresh one.' : 'Could not load the roster.'));
   useEffect(() => { load(); }, [token]);
 
-  const claim = async (memberId) => {
+  const claim = async (memberId, callsign) => {
+    const linked = data.already_linked;
+    // Re-home: the pilot is linked in a DIFFERENT group (a stuck trial/demo
+    // wing). Switching them here removes that old entry, so confirm explicitly.
+    const rehome = !!(linked && !linked.same_wing);
+    if (rehome && !confirm(
+      `Link your Discord to ${callsign} in ${data.wing.tag || data.wing.name}?\n\n`
+      + `You're currently linked to ${linked.callsign} in ${linked.wing_name || 'another group'} — `
+      + 'this moves you here and removes that old entry.'
+    )) return;
     setBusy(true); setErr('');
     try {
-      await api.post(`/api/claim/${token}`, { member_id: memberId });
+      await api.post(`/api/claim/${token}`, { member_id: memberId, rehome });
       await reload();
       navigate('/');
     } catch (e) {
@@ -102,14 +111,23 @@ export default function Claim() {
       <h1>Claim your pilot</h1>
       <p className="muted">{data.wing.tag ? `${data.wing.tag} — ` : ''}{data.wing.name}</p>
 
-      {data.already_linked ? (
+      {data.already_linked && data.already_linked.same_wing ? (
+        // Already linked HERE — nothing to switch.
         <div className="card">
-          <p style={{ marginTop: 0 }}>Your Discord is already linked to <b>{data.already_linked.callsign}</b>.</p>
+          <p style={{ marginTop: 0 }}>Your Discord is already linked to <b>{data.already_linked.callsign}</b> in this group.</p>
           <button className="primary" onClick={() => navigate('/')}>Go to ReadyRoom →</button>
         </div>
       ) : (
         <>
-          <p className="small muted">Find your name and claim it to link your Discord. Don't see yourself? Ask your squadron admin to add you to the roster first.</p>
+          {data.already_linked ? (
+            // Linked in a DIFFERENT group (a stuck trial/demo wing) — offer to switch.
+            <div className="callout" style={{ marginBottom: 12 }}>
+              <p style={{ marginTop: 0 }}>Your Discord is currently linked to <b>{data.already_linked.callsign}</b> in <b>{data.already_linked.wing_name || 'another group'}</b>{data.already_linked.solo ? ' (a group with just you in it)' : ''}.</p>
+              <p style={{ marginBottom: 0 }}>Pick your name below to <b>switch into {data.wing.tag || data.wing.name}</b> — you'll be moved here and the old entry removed.</p>
+            </div>
+          ) : (
+            <p className="small muted">Find your name and claim it to link your Discord. Don't see yourself? Ask your squadron admin to add you to the roster first.</p>
+          )}
           {err && <p className="error">{err}</p>}
           {!data.members.length ? (
             <div className="empty">No unclaimed pilots on this roster right now.</div>
@@ -123,7 +141,9 @@ export default function Claim() {
                       <div className="callsign">{m.callsign || m.name}{m.modex ? ` · ${m.modex}` : ''}</div>
                       {m.callsign && m.name && <div className="small muted">{m.name}</div>}
                     </div>
-                    <button className="small primary" disabled={busy} onClick={() => claim(m.id)}>This is me</button>
+                    <button className="small primary" disabled={busy} onClick={() => claim(m.id, m.callsign || m.name)}>
+                      {data.already_linked ? 'Switch to this' : 'This is me'}
+                    </button>
                   </div>
                 ))}
               </div>

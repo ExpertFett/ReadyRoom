@@ -363,9 +363,20 @@ export function apiRouter() {
     const wing = getWingByClaimToken(req.params.token);
     if (!wing) return res.status(404).json({ error: 'bad_token' });
     const mine = getMemberByDiscord(actor.user.id);
+    let linked = null;
+    if (mine) {
+      const myWing = getWing(mine.wing_id);
+      linked = {
+        member_id: mine.id, callsign: mine.callsign || mine.name,
+        wing_id: mine.wing_id,
+        wing_name: myWing ? (myWing.tag || myWing.name) : null,
+        same_wing: mine.wing_id === wing.id,        // already in THIS group → nothing to do
+        solo: getMembersByWing(mine.wing_id).length <= 1, // only them → clearly a trial/demo wing
+      };
+    }
     res.json({
       wing: { id: wing.id, name: wing.name, tag: wing.tag || null },
-      already_linked: mine ? { member_id: mine.id, callsign: mine.callsign || mine.name, wing_id: mine.wing_id } : null,
+      already_linked: linked,
       members: getUnclaimedMembers(wing.id),
     });
   });
@@ -374,7 +385,30 @@ export function apiRouter() {
     if (!actor.user) return res.status(401).json({ error: 'unauthorized' });
     const wing = getWingByClaimToken(req.params.token);
     if (!wing) return res.status(404).json({ error: 'bad_token' });
-    const result = claimMember(wing.id, Number(req.body?.member_id), actor.user.id);
+    const memberId = Number(req.body?.member_id);
+    const existing = getMemberByDiscord(actor.user.id);
+
+    // Self-healing re-home: a pilot already linked in ANOTHER wing (typically a
+    // solo/demo trial wing they got stuck in) can SWITCH into this group via its
+    // claim link instead of hitting the dead-end "already_linked". Requires an
+    // explicit rehome flag — the UI confirms "this moves you out of <old wing>".
+    // We release the old membership (freeing the globally-unique Discord id),
+    // then claim the chosen spot here. Node:sqlite is synchronous so the
+    // delete+claim is atomic within the request.
+    if (existing && existing.wing_id !== wing.id) {
+      if (!req.body?.rehome) return res.status(409).json({ error: 'already_linked', wing_id: existing.wing_id });
+      const target = getMember(memberId);
+      if (!target || target.wing_id !== wing.id) return res.status(400).json({ error: 'bad_member' });
+      if (target.discord_user_id && /^\d{17,20}$/.test(String(target.discord_user_id))) return res.status(409).json({ error: 'taken' });
+      const oldWingId = existing.wing_id;
+      deleteMember(existing.id);
+      const result = claimMember(wing.id, target.id, actor.user.id);
+      if (typeof result === 'string') return res.status(409).json({ error: result });
+      audit(req, wing.id, 'rehomed', 'member', result.id, `${result.callsign || result.name} switched in from wing #${oldWingId} via claim link`);
+      return res.json({ ok: true, member: result, rehomed_from: oldWingId });
+    }
+
+    const result = claimMember(wing.id, memberId, actor.user.id);
     if (typeof result === 'string') return res.status(409).json({ error: result });
     audit(req, wing.id, 'claimed', 'member', result.id, `${result.callsign || result.name} self-linked their Discord`);
     res.json({ ok: true, member: result });
