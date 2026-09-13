@@ -9,7 +9,7 @@ import {
   setWingDigestEnabled,
   getWingClaimToken, regenerateWingClaimToken, getWingByClaimToken, getUnclaimedMembers, claimMember,
   createSquadron, getSquadrons, getSquadron, updateSquadron, deleteSquadron,
-  createMember, getMember, getMemberByDiscord, getMembersByWing, getMembersBySquadron, updateMember, deleteMember, moveMemberToWing,
+  createMember, getMember, getMemberByDiscord, getMembersByWing, getMembersBySquadron, updateMember, deleteMember, moveMemberToWing, setMemberAppRole,
   addAlias, getAliases, getAlias, deleteAlias, relinkSortiesForAlias,
   createQual, getQuals, getQual, deleteQual, updateQual, reorderQual, bulkAssignQuals,
   getModexPools, setModexPool, deleteModexPool, getAvailableModex,
@@ -46,7 +46,7 @@ import {
   createLOA, getLOA, setLOAStatus, updateLOA, deleteLOA, getUpcomingLOAs, getMemberLOAs,
   getAttendanceMetrics, getAttendanceTimeseries, getPilotPerformance, setEventDiscord,
   setEventPostAt, getEventsDueForDiscord,
-  setEventSignup, removeEventSignup, removeAllEventSignupsForUser, getEventSignups, countEventRoleSignups,
+  setEventSignup, removeEventSignup, removeAllEventSignupsForUser, getEventSignups, countEventRoleSignups, remapEventSignupLabel,
   claimEventSlot, getEventByMission, getMemberEventSignups,
 } from '../db/events.js';
 import { publishEvent as opsbotPublishEvent, editEvent as opsbotEditEvent, deleteEvent as opsbotDeleteEvent, publishCalendar as opsbotPublishCalendar } from '../services/opsbotBridge.js';
@@ -1088,16 +1088,31 @@ export function apiRouter() {
 
     const existing = getEventByMission(m.id);
     let event;
+    let signupsDropped = 0;
     if (existing) {
       // Re-sync roles/taskings from the (possibly edited) flights while
-      // preserving the event's own title/description/schedule. Signups on
-      // unchanged seat labels survive.
+      // preserving the event's own title/description/schedule. Sign-ups on
+      // unchanged seat labels survive as-is; when a flight was RENAMED (seat
+      // count unchanged) we re-anchor each seat's sign-ups to the new label by
+      // position so renaming a flight/tasking no longer wipes the roster. If
+      // seats were added/removed we can't safely remap, so sign-ups on vanished
+      // seats are left behind and reported back (signups_dropped) for a warning.
+      const oldRoles = Array.isArray(existing.roles) ? existing.roles : [];
+      if (oldRoles.length === roles.length) {
+        for (let i = 0; i < roles.length; i++) {
+          if (oldRoles[i]?.label && roles[i]?.label) {
+            remapEventSignupLabel(existing.id, oldRoles[i].label, roles[i].label);
+          }
+        }
+      }
       event = updateEvent(existing.id, {
         squadron_id: existing.squadron_id, title: existing.title, description: existing.description,
         kind: existing.kind, start_at: existing.start_at, end_at: existing.end_at,
         multi_squadron: !!existing.multi_squadron, track_attendance: existing.track_attendance !== 0,
         roles, taskings,
       });
+      const newLabels = new Set(roles.map((r) => r.label));
+      signupsDropped = getEventSignups(existing.id).filter((su) => !newLabels.has(su.role_label)).length;
     } else {
       event = createEvent(m.wing_id, {
         title: m.name,
@@ -1125,7 +1140,7 @@ export function apiRouter() {
     }
 
     audit(req, m.wing_id, existing ? 'updated' : 'created', 'event', event.id, `Published mission as event: ${event.title}`);
-    res.json(event);
+    res.json({ ...event, signups_dropped: signupsDropped });
   });
   router.put('/missions/:id', requireAdmin, (req, res) => {
     const m = getMissionFull(Number(req.params.id));
@@ -2010,6 +2025,7 @@ export function apiRouter() {
           squadron: m.squadron_id ? (sqName.get(m.squadron_id) || `#${m.squadron_id}`) : null,
           discord_user_id: m.discord_user_id || null,
           linked: !!(m.discord_user_id && SNOWFLAKE.test(m.discord_user_id)),
+          is_admin: m.app_role === 'admin',
         })),
       };
     });
@@ -2047,6 +2063,21 @@ export function apiRouter() {
     const ok = deleteWing(wingId) > 0;
     console.log(`[link-doctor] ${actor.user?.username || actor.user?.id} deleted wing #${wingId} (${wing.tag || wing.name})${force ? ' [forced]' : ''}`);
     res.json({ ok });
+  });
+
+  // Promote/demote a member to group owner (app_role admin) — lets the platform
+  // owner hand a group its admin from the Link Doctor. Root-only.
+  router.post('/admin/set-member-role', (req, res) => {
+    const actor = getActor(req);
+    if (!actor.root) return res.status(403).json({ error: 'root_only' });
+    const memberId = Number(req.body?.member_id);
+    if (!memberId) return res.status(400).json({ error: 'missing_id' });
+    const m = getMember(memberId);
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    const role = req.body?.role === 'admin' ? 'admin' : 'member';
+    const updated = setMemberAppRole(memberId, role);
+    console.log(`[link-doctor] ${actor.user?.username || actor.user?.id} set member #${memberId} (${m.callsign || m.name || 'pilot'}) role=${role} in wing #${m.wing_id}`);
+    res.json({ ok: true, member: updated });
   });
 
   // Delete a single roster member — owner cleanup for stray/duplicate entries

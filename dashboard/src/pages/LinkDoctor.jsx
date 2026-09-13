@@ -70,6 +70,16 @@ export default function LinkDoctor() {
     doDelete(w, false);
   };
 
+  const setRole = async (m, makeAdmin) => {
+    setBusy(`r${m.id}`);
+    try {
+      await api.post('/api/admin/set-member-role', { member_id: m.id, role: makeAdmin ? 'admin' : 'member' });
+      await load();
+    } catch (e) {
+      alert(`Role change failed${e.status ? ` (${e.status})` : ''}.`);
+    } finally { setBusy(0); }
+  };
+
   const delMember = async (m) => {
     if (!confirm(`Remove ${m.callsign || m.name || 'this member'} from the roster?\n\nDeletes this roster entry${m.linked ? ' and unlinks their Discord account' : ''}. Cannot be undone.`)) return;
     setBusy(`m${m.id}`);
@@ -123,7 +133,7 @@ export default function LinkDoctor() {
                   <tbody>
                     {w.members.map((m) => (
                       <tr key={m.id}>
-                        <td className="callsign">{m.callsign || '—'}</td>
+                        <td className="callsign">{m.callsign || '—'}{m.is_admin && <span className="badge admin" style={{ marginLeft: 6 }}>OWNER</span>}</td>
                         <td className="small">{m.name || '—'}</td>
                         <td className="small">{m.squadron || <span className="muted">wing</span>}</td>
                         <td className="small">
@@ -138,6 +148,9 @@ export default function LinkDoctor() {
                             {targets.length > 0 && (
                               <MoveControl member={m} targets={targets} busy={busy === m.id} onMove={move} />
                             )}
+                            {m.is_admin
+                              ? <button className="small" title="Remove group-owner (admin) rights" disabled={busy === `r${m.id}`} onClick={() => setRole(m, false)}>{busy === `r${m.id}` ? '…' : 'Remove owner'}</button>
+                              : <button className="small" title="Make this pilot a group owner (admin) — can manage the group + export CSVs" disabled={busy === `r${m.id}` || !m.linked} onClick={() => setRole(m, true)}>{busy === `r${m.id}` ? '…' : 'Make owner'}</button>}
                             <button className="small" title="Remove this roster entry" style={{ color: 'var(--danger, #c0392b)' }} disabled={busy === `m${m.id}`} onClick={() => delMember(m)}>{busy === `m${m.id}` ? '…' : 'Remove'}</button>
                           </span>
                         </td>

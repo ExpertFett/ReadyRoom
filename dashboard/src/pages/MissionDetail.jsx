@@ -67,8 +67,19 @@ export default function MissionDetail() {
   // seat into a signup slot, posts it to Discord via the Ops Bot, and links the
   // event so the planner's share link then pulls who actually signed up.
   const publishEvent = async () => {
+    // Re-sync (the event already exists) can change sign-up slots, so confirm
+    // first — this is the "it wiped the roster" foot-gun. A rename now carries
+    // sign-ups over; only added/removed slots affect anyone.
+    if (m.published_event_id && !confirm(
+      'Re-sync pushes this mission\'s current flights to the Discord sign-up post.\n\n'
+      + 'Pilots already signed up stay signed up — renaming a flight or tasking carries their slot over. '
+      + 'Only slots you ADDED or REMOVED change; sign-ups on a removed slot are cleared.\n\nContinue?'
+    )) return;
     try {
       const event = await api.post(`/api/missions/${m.id}/publish-event`);
+      if (event.signups_dropped > 0) {
+        toast.error(`${event.signups_dropped} sign-up${event.signups_dropped === 1 ? ' was' : 's were'} on a removed slot and cleared.`);
+      }
       navigate(`/events/${event.id}`);
     } catch {
       toast.error('Could not publish this mission as an event.');
@@ -106,8 +117,10 @@ export default function MissionDetail() {
         {isAdmin && (
           <div className="row">
             <button className="small primary" onClick={publishEvent}
-              title="Turn each flight seat into a Discord sign-up slot. Once pilots sign up, the planner's sign-up link pulls them in.">
-              {m.published_event_id ? 'Re-sync event' : 'Publish as event'}
+              title={m.published_event_id
+                ? 'Push this mission\'s current flights to the Discord sign-up post. Existing sign-ups are preserved (renames carry over); only added/removed slots change.'
+                : 'Turn each flight seat into a Discord sign-up slot. Once pilots sign up, the planner\'s sign-up link pulls them in.'}>
+              {m.published_event_id ? 'Re-sync flights → Discord' : 'Publish as event'}
             </button>
             {m.published_event_id && (
               <Link className="small" to={`/events/${m.published_event_id}`} style={{ alignSelf: 'center' }}>Open event ↗</Link>

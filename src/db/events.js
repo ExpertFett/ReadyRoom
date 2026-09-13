@@ -202,6 +202,14 @@ export function setEventSignup(eventId, { role_label, discord_user_id, member_id
   );
   return true;
 }
+// Re-anchor a slot's sign-ups to a new label — used when a mission's flight is
+// renamed and the event is re-synced, so sign-ups survive the label change
+// instead of orphaning. UPDATE OR IGNORE skips the rare unique collision.
+const remapSignupLabelStmt = db.prepare('UPDATE OR IGNORE event_signups SET role_label = ? WHERE event_id = ? AND role_label = ?');
+export function remapEventSignupLabel(eventId, oldLabel, newLabel) {
+  if (String(oldLabel) === String(newLabel)) return 0;
+  return remapSignupLabelStmt.run(String(newLabel), Number(eventId), String(oldLabel)).changes;
+}
 const removeSignupStmt = db.prepare('DELETE FROM event_signups WHERE event_id = ? AND role_label = ? AND discord_user_id = ?');
 export function removeEventSignup(eventId, roleLabel, discordUserId) {
   return removeSignupStmt.run(eventId, String(roleLabel), String(discordUserId)).changes;

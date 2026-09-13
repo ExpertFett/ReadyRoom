@@ -635,6 +635,13 @@ export function getMemberByDiscord(discordId) {
 // the caller can re-slot them after. discord_user_id is globally unique, so the
 // link simply travels with the row. Reversible (move back). Best on a fresh
 // setup; historical mission signups/quals stay attached to the old wing's rows.
+// Promote/demote a member's app role (owner cleanup from the Link Doctor).
+const setMemberRoleStmt = db.prepare('UPDATE members SET app_role = ?, updated_at = ? WHERE id = ?');
+export function setMemberAppRole(memberId, role) {
+  const r = role === 'admin' ? 'admin' : 'member';
+  setMemberRoleStmt.run(r, Date.now(), Number(memberId));
+  return getMember(Number(memberId));
+}
 const moveMemberStmt = db.prepare('UPDATE members SET wing_id = ?, squadron_id = ?, updated_at = ? WHERE id = ?');
 export function moveMemberToWing(memberId, wingId, squadronId = null) {
   const m = selectMember.get(Number(memberId));
