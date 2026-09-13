@@ -11,8 +11,9 @@ import { useMe } from '../App.jsx';
 // OAuth cookie round-trip silently breaks — the #1 cause of "I authorize and
 // the screen just sits there / it keeps asking me to verify."
 export function LoginGate({ next, title = 'Sign in to ReadyRoom', blurb = 'Log in with Discord to continue.' }) {
-  const inApp = typeof navigator !== 'undefined'
-    && /(Discord|FBAN|FBAV|FB_IAB|Instagram|Line|GSA)/i.test(navigator.userAgent);
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const inApp = /(Discord|FBAN|FBAV|FB_IAB|Instagram|Line|GSA)/i.test(ua);
+  const android = /Android/i.test(ua);
   const err = new URLSearchParams(window.location.search).get('error');
   // The full URL the pilot should open in a real browser = origin + destination.
   const url = `${window.location.origin}${next || '/'}`;
@@ -37,6 +38,16 @@ export function LoginGate({ next, title = 'Sign in to ReadyRoom', blurb = 'Log i
             <button className="small primary" onClick={copy}>{copied ? 'Copied ✓' : 'Copy link'}</button>
             <p className="small muted" style={{ marginBottom: 0 }}>Tip: tap the ⋯ menu (usually top-right) → <b>Open in browser</b>.</p>
           </div>
+        )}
+        {android && (
+          // Confirmed fix (Samsung/Edge tester): even in a real browser, Android
+          // can grab the discord.com sign-in link and hand it to the Discord APP
+          // mid-flow, breaking the return here. Auto-opened when a sign-in failed.
+          <details className="callout" style={{ textAlign: 'left', marginTop: 10 }} open={!!err}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Android: sign-in bounces to the Discord app?</summary>
+            <p style={{ margin: '6px 0' }}>Android is opening the Discord sign-in link in the Discord <i>app</i> instead of finishing in your browser. Turn that off, then try again:</p>
+            <p className="small" style={{ margin: 0 }}><b>Settings → Apps → Discord → Open supported links → OFF</b> (older phones: <b>Set as default → Open supported links</b>). Then tap <b>Log In with Discord</b> below and finish it in the browser.</p>
+          </details>
         )}
         <a className="btn-discord" href={loginHref} style={{ marginTop: 12, display: 'inline-flex' }}>
           {inApp ? 'Try signing in anyway' : 'Log In with Discord'}
