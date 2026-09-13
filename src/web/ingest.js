@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getWingByIngestToken, addSortie, getMemberByDiscord, memberHoldsQual } from '../db/index.js';
+import { getWingByIngestToken, addSortie, getMemberByDiscord, memberHoldsQual, getMemberQuals, getSquadron } from '../db/index.js';
 import { getEvent, getEventSignups, claimEventSlot, removeAllEventSignupsForUser } from '../db/events.js';
 import { getBaseUrl } from '../config.js';
 
@@ -39,6 +39,36 @@ export function ingestRouter() {
     const wing = getWingByIngestToken(req.params.token);
     if (!wing) return res.status(401).json({ error: 'bad_token' });
     res.json({ ok: true, wing: { id: wing.id, name: wing.name, tag: wing.tag || null } });
+  });
+
+  // Roster card for the Ops Bot's /whois command — ReadyRoom is the single source
+  // of truth for the roster, so the bot reads it from here instead of keeping its
+  // own copy. Token-scoped: only exposes members of the wing the token belongs to.
+  router.get('/:token/whois/:discordId', (req, res) => {
+    const wing = getWingByIngestToken(req.params.token);
+    if (!wing) return res.status(401).json({ error: 'bad_token' });
+    const member = getMemberByDiscord(String(req.params.discordId));
+    if (!member || member.wing_id !== wing.id) return res.status(404).json({ error: 'not_found' });
+    const quals = getMemberQuals(member.id)
+      .filter((q) => q.status === 'qualified')
+      .map((q) => q.code || q.name)
+      .filter(Boolean);
+    const squadron = member.squadron_id ? getSquadron(member.squadron_id) : null;
+    res.json({
+      wing: { id: wing.id, name: wing.name, tag: wing.tag || null },
+      member: {
+        callsign: member.callsign || null,
+        name: member.name || null,
+        rank: member.rank || null,
+        modex: member.modex || null,
+        airframes: member.airframes || null,
+        billet: member.billet || null,
+        status: member.status || null,
+        squadron: squadron ? (squadron.tag || squadron.name) : null,
+        quals,
+        profile_url: `${getBaseUrl()}/members/${member.id}`,
+      },
+    });
   });
 
   router.post('/:token', (req, res) => {
