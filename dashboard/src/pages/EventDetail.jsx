@@ -129,6 +129,19 @@ export default function EventDetail() {
   };
   useEffect(() => { setEvent(null); setErr(null); load(); }, [id]);
 
+  // Sign-ups arrive from Discord, so the open page must refresh itself — poll
+  // every 15s and on refocus so Discord sign-ups appear without a manual reload.
+  // A background poll uses a silent fetch (no error/spinner) and pauses while
+  // an admin is editing so it can't clobber the edit form.
+  useEffect(() => {
+    if (editing) return undefined;
+    const tick = () => api.get(`/api/events/${id}`).then(setEvent).catch(() => {});
+    const t = setInterval(tick, 15000);
+    const onFocus = () => tick();
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(t); window.removeEventListener('focus', onFocus); };
+  }, [id, editing]);
+
   if (err) return (
     <div className="empty">
       Couldn't load this event{err.status ? ` (${err.status})` : ''}.

@@ -44,6 +44,22 @@ export default function MemberDetail() {
     navigate('/');
   };
 
+  // Quick co-admin promote/demote for a group admin (uses the same PUT the edit
+  // form does; a group owner may set roles on members of their own group). Kept
+  // out of the edit form so it's a discoverable one-click action.
+  const toggleCoAdmin = async () => {
+    const makeAdmin = m.app_role !== 'admin';
+    if (!confirm(makeAdmin
+      ? `Make ${m.callsign || m.name} a co-admin?\n\nThey'll be able to manage this group — roster, events, missions, qualifications, and data export.`
+      : `Remove co-admin rights from ${m.callsign || m.name}?`)) return;
+    if (makeAdmin && !/^\d{17,20}$/.test(String(m.discord_user_id || ''))) {
+      alert('Link their Discord account first — a co-admin needs a valid Discord ID to sign in and manage the group.');
+      return;
+    }
+    await api.put(`/api/members/${m.id}`, { app_role: makeAdmin ? 'admin' : 'member' });
+    load();
+  };
+
   return (
     <div>
       <div className="crumbs"><Link to="/">Wing</Link> / {m.squadron_id ? <Link to={`/squadrons/${m.squadron_id}`}>Squadron</Link> : 'Wing staff'} / {m.callsign || m.name}</div>
@@ -54,7 +70,15 @@ export default function MemberDetail() {
             <span key={c} className="badge cap" style={{ marginLeft: 6, background: 'var(--accent-soft)', color: 'var(--accent)' }}>{c}</span>
           ))}
         </h1>
-        {me.isAdmin && <button className="danger small" onClick={del}>Delete</button>}
+        <div className="row" style={{ gap: 8 }}>
+          {me.isAdmin && !isSelf && (
+            <button className="small" onClick={toggleCoAdmin}
+              title={m.app_role === 'admin' ? 'Remove co-admin rights' : 'Give this pilot co-admin rights (manage the group + export data)'}>
+              {m.app_role === 'admin' ? 'Remove co-admin' : 'Make co-admin'}
+            </button>
+          )}
+          {me.isAdmin && <button className="danger small" onClick={del}>Delete</button>}
+        </div>
       </div>
 
       <div className="row" style={{ alignItems: 'flex-start' }}>

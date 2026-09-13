@@ -4,6 +4,9 @@ async function request(method, path, body) {
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
     credentials: 'same-origin',
+    // API data is live + session-specific (e.g. Discord sign-ups landing on an
+    // event page); never serve it from the browser HTTP cache.
+    cache: 'no-store',
   });
   if (res.status === 401) {
     const err = new Error('unauthorized');
